@@ -12,9 +12,17 @@
 - **U09（2080 主机资源红线落到代码）**：帧按 `UL_OUT_HEIGHT`（默认 1280）缩放后常驻、`UL_MAX_FRAMES` 默认 300、形象 LRU 只留 `UL_MAX_LOADED` 个；ONNX Runtime 显存池 `UL_ORT_GPU_MB` 封顶；`UL_MAX_SESSION` 默认 1；训练走独立子进程，有直播画面在线时返回 409 拒绝（可强制）。
 - **U10（主题点播只讲知识库里有的）**：`topic_router.py` 按「分类/章/小节」跨讲稿建主题目录；AI 只能从目录编号里选，不能编主题；冷却期内重复点播只回顾重点；模板一律 `fill_template()`，禁止对配置模板用 `str.format`。
 - **U11（配置说明唯一真源）**：参数白话说明、预设、向导、体检全部在 `ai-live-hub/config_guide.py`，WebUI 与桌面端共用；`/api/guide/apply` 只接受预设/向导/登记过的参数/体检修复项，不接受任意补丁；写 env.bat 校验 ASCII 与危险字符。
+- **U12（音画必须共用一个时钟）**：WebRTC 音频轨与视频轨的发送节奏必须以同一个会话时钟 t0（画面开始拉流时刻）为基准；禁止两条轨道各自从“第一次被拉取”开始计时——OBS/浏览器常先拉音频后拉画面，会让声音永久领先约一个前瞻缓冲（实测模拟 ~275ms，表现为“声音停了嘴还在动”）。残余固定延迟用 `UL_AV_OFFSET_MS` 微调。
+- **U13（预览绝不能抢 OBS）**：预览页 `/stage?preview=1` 一律以 `role=preview` 连接；OBS 已在推时引擎只建 `MirrorSession` 复用渲染帧（不推理、不占 `max_session`），中控只对 `role=main` 绑定说话会话；OBS 后到时引擎让临时当主画面的预览让位。预览开关 `/api/preview`（`ui.preview_enabled`）关闭时广播 `preview_update`，所有预览页断开并停止重连。
+- **U14（字幕调大必须换行不溢出）**：`#subtitle-box` 必须 `overflow-wrap:anywhere` + `box-sizing:border-box`；字号上限 80，按 `sub_max_lines` 判定行数，超出时 `paginate`（按标点分屏、每屏≈字数/4.6 秒）或 `shrink`（逐级缩小到 14px，仍放不下转分屏）。
 - **P01~P38 通用铁律**：`.bat` 纯 ASCII + CRLF、锁定 `websockets==12.0`、`requirements.txt` 不含 `torch`、`*.example.json` 无真实 Key、JSON 原子写入、不留 `.bak/_old/archive/`、全成人视角合规、`health_monitor.py` 纯规则探针。
 
 ## 2. 迭代记录
+- **2026-11-27（预览开关 + 字幕字号与自动换行）**：
+  1. 预览开关：WebUI「直播画面预览」开关与桌面端「开启预览 / 🖥 看真实画面」共用 `/api/preview`；预览页在 OBS 开播时共享同一路画面（`MirrorSession`），模拟测试 OBS 与预览两路音画偏差均 0ms，中控说话会话始终留在 OBS。新增 `UL_MAX_PREVIEW`（默认 1）。
+  2. 字幕：字号 14→80px，WebUI/桌面端加 A−/A＋；新增“最多几行 / 太长放不下时（分屏轮播·自动缩小）/ 最宽占屏幕%”；舞台页强制换行、分屏时长按语速估算（各屏累计≈整句朗读时长）；桌面详调预览按真实规则换行演示。
+  3. 傻瓜配置新增“直播画面”分组 4 项 + `UL_MAX_PREVIEW`；新增回归测试 `test_subtitle_wrap_and_preview_switch`。
+- **2026-11-27（修复音画不同步：声音停了嘴还在动）**：`ultralight_server.py` 音视频轨道改为共用会话时钟（视频开拉为 t0，音频等画面开始后一起计时，纯音频客户端 2 秒兜底；卡顿超 2 秒整体顺延）；模拟“画面晚 1~3 秒开拉”时声音领先由 ~275ms 降为 0ms，卡顿 2.5 秒恢复后仍对齐；新增 `UL_AV_OFFSET_MS` 音画微调（傻瓜配置可调，体检提示过大值）。
 - **2026-11-27（审核优化：主题点播 + 傻瓜配置 + 引擎安全/性能 + 训练提速）**：
   1. 新增 [topic_router.py](ai-live-hub/topic_router.py)：全部讲稿按主题索引；弹幕“先讲讲/想听/说说 + 主题”由关键词秒判、含糊说法交给已配置大模型复核（只能选目录编号），命中即插播该主题讲稿（礼物 > 点播 > 普通提问 > 章节连播），点播期间可穿插答疑，讲完自动回原章节；讲稿支持 `> [主题词] a|b` 补充观众叫法；新增 `/api/topics*` 接口、WebUI「🎯 观众点播主题」面板与桌面端「🎯 主题点播目录」。
   2. 新增 [config_guide.py](ai-live-hub/config_guide.py)：31 项参数白话说明 + 专业说明 + 2080 推荐值，5 个一键预设、三问向导、按主机红线体检与一键修复；新增 `/api/guide*`、WebUI「🧸 傻瓜配置向导」与桌面端顶栏「🧸 傻瓜配置」。

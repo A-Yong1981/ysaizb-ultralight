@@ -98,6 +98,7 @@
       color: #082f49; font-weight: 700; font-size: 15px;
       padding: 6px 16px; border-radius: 999px;
       max-width: 82%; text-align: center;
+      box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; word-break: break-word;
     }
     #subtitle-box {
       display: none;
@@ -109,6 +110,13 @@
       font-size: 24px; font-weight: 600; line-height: 1.45;
       text-align: center;
       text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+      /* 字号调大后自动换行，任何长词/长数字/英文都不会撑出屏幕 */
+      box-sizing: border-box;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-break: strict;
+      overflow: hidden;
     }
     .hidden { display: none !important; }
     /* 知识板书与右上/左上定位控制 */
@@ -404,8 +412,24 @@
       isSwitching = false;
     }
 
+    let previewAllowed = true;
+    function stopPreviewStream(msg) {
+      previewAllowed = false;
+      connectSeq++;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (currentSessionId && navigator.sendBeacon) {
+        try { navigator.sendBeacon("/api/webrtc/release", new Blob([JSON.stringify({ sessionid: currentSessionId })], { type: "application/json" })); } catch (_) {}
+      }
+      currentSessionId = "";
+      const old = pc; pc = null;
+      if (old) { old.onconnectionstatechange = null; try { old.close(); } catch (_) {} }
+      switchToast.textContent = msg || "预览已关闭";
+      switchToast.style.display = "block";
+    }
+
     async function connectWebRTC(targetAvatar = "") {
       if (layer === "overlay") return;
+      if (preview && !previewAllowed) return;
       const seq = ++connectSeq;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (targetAvatar) currentAvatarId = targetAvatar;
@@ -457,7 +481,8 @@
           });
         }
         if (pc !== thisPc || seq !== connectSeq) return;
-        const payload = { sdp: thisPc.localDescription.sdp, type: thisPc.localDescription.type };
+        const payload = { sdp: thisPc.localDescription.sdp, type: thisPc.localDescription.type,
+                          role: preview ? "preview" : "main" };   // 预览页只共享 OBS 画面，不抢 OBS 的说话会话
         if (currentAvatarId) payload.avatar = currentAvatarId;
         const res = await fetch("/api/webrtc/offer", {
           method: "POST",
@@ -502,6 +527,9 @@
       effect_preset: "classic_dark",
       font_size: 24,
       board_font_size: 14,
+      sub_max_lines: 3,
+      sub_width_pct: 90,
+      sub_overflow: "paginate",
       font_weight: 600,
       text_color: "#FFFFFF",
       stroke_color: "#000000",
@@ -550,9 +578,9 @@
         zone.style.marginBottom = effPct + "%";
       }
       if (subEl) {
-        const baseFs = Number(overlayCfg.font_size || 24);
         subEl.style.fontFamily = fontCss;
-        subEl.style.fontSize = (isPort ? Math.max(14, Math.round(baseFs * 0.82)) : baseFs) + "px";
+        subEl.style.fontSize = subBaseFontPx() + "px";
+        subEl.style.maxWidth = Math.max(60, Math.min(98, Number(overlayCfg.sub_width_pct || 90))) + "%";
         subEl.style.fontWeight = String(overlayCfg.font_weight || 600);
         subEl.style.color = overlayCfg.text_color || "#FFFFFF";
 
@@ -625,6 +653,97 @@
       syncTopVisibility();
     }
 
+    // ---------------- 字幕自动换行 / 防溢出 ----------------
+    // 字号可调到 80px；按屏幕宽度自动换行，最多显示 sub_max_lines 行：
+    //   paginate（默认）保持字号，长句按标点拆成几屏依次轮播（按语速估算每屏时长）
+    //   shrink 自动缩小字号直到放进设定行数（最小 14px，仍放不下则改为分屏）
+    let subPageTimer = null;
+    let subPages = [];
+    let subLayoutKey = "";
+    function subBaseFontPx() {
+      const isPort = document.body.classList.contains("portrait");
+      const baseFs = Math.max(14, Math.min(80, Number(overlayCfg.font_size || 24)));
+      return isPort ? Math.max(14, Math.round(baseFs * 0.82)) : baseFs;
+    }
+    function stopSubPages() {
+      if (subPageTimer) { clearTimeout(subPageTimer); subPageTimer = null; }
+      subPages = [];
+    }
+    function subFits(el, maxLines) {
+      const cs = getComputedStyle(el);
+      const fs = parseFloat(cs.fontSize) || 24;
+      const lh = parseFloat(cs.lineHeight) || fs * 1.45;
+      const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const contentH = el.scrollHeight - pad;
+      const lines = Math.round(contentH / lh);
+      const widthOk = el.scrollWidth <= el.clientWidth + 1;
+      return { ok: lines <= maxLines && widthOk, lines };
+    }
+    function subReadSeconds(txt) {
+      const cjk = (txt.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
+      const words = (txt.replace(/[\u3400-\u9fff\uf900-\ufaff]/g, " ").match(/[A-Za-z0-9]+/g) || []).length;
+      return Math.max(0.8, cjk / 4.6 + words / 2.6);   // 约等于 Edge-TTS 中文语速；各屏累计时长≈整句朗读时长
+    }
+    function splitSubPages(el, text, maxLines) {
+      // 先按标点切小段，再贪心拼成“刚好放得下”的一屏；单段过长时按字切
+      const parts = text.match(/[^，,。！？!?；;：:、…]+[，,。！？!?；;：:、…]*/g) || [text];
+      const pages = [];
+      let cur = "";
+      const fits = (t) => { el.textContent = t; return subFits(el, maxLines).ok; };
+      for (let part of parts) {
+        if (fits(cur + part)) { cur += part; continue; }
+        if (cur) { pages.push(cur); cur = ""; }
+        while (part && !fits(part)) {
+          let lo = 1, hi = part.length;
+          while (lo < hi) {   // 二分找本屏最多能放几个字
+            const mid = Math.ceil((lo + hi) / 2);
+            if (fits(part.slice(0, mid))) lo = mid; else hi = mid - 1;
+          }
+          pages.push(part.slice(0, Math.max(1, lo)));
+          part = part.slice(Math.max(1, lo));
+        }
+        cur = part;
+      }
+      if (cur) pages.push(cur);
+      return pages.length ? pages : [text];
+    }
+    function showSubPage(el, i) {
+      if (i >= subPages.length) return;
+      el.textContent = subPages[i];
+      if (i + 1 < subPages.length) {
+        const wait = subReadSeconds(subPages[i]) * 1000 + (i === 0 ? 600 : 0);
+        subPageTimer = setTimeout(() => showSubPage(el, i + 1), wait);
+      }
+    }
+    function layoutSubtitle(text, keepPage) {
+      const el = document.getElementById("subtitle-box");
+      if (!el) return;
+      const maxLines = Math.max(1, Math.min(5, Number(overlayCfg.sub_max_lines || 3)));
+      const mode = overlayCfg.sub_overflow === "shrink" ? "shrink" : "paginate";
+      const baseFs = subBaseFontPx();
+      const key = [text, maxLines, mode, baseFs, overlayCfg.sub_width_pct, innerWidth, innerHeight, overlayCfg.font_preset].join("|");
+      if (keepPage && key === subLayoutKey && subPages.length) return;   // 同一句只是刷新状态：不打断轮播
+      subLayoutKey = key;
+      stopSubPages();
+      el.style.fontSize = baseFs + "px";
+      el.textContent = text;
+      if (subFits(el, maxLines).ok) return;
+      if (mode === "shrink") {
+        let fs = baseFs;
+        while (fs > 14) {
+          fs -= 2;
+          el.style.fontSize = fs + "px";
+          if (subFits(el, maxLines).ok) return;
+        }
+      }
+      subPages = splitSubPages(el, text, maxLines);
+      showSubPage(el, 0);
+    }
+    window.addEventListener("resize", () => { if (lastSubText) { subLayoutKey = ""; layoutSubtitle(lastSubText, false); } });
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => { if (lastSubText) { subLayoutKey = ""; layoutSubtitle(lastSubText, false); } });
+    }
+
     function updateSubtitle(sub, q, skipAnim = false) {
       const textChanged = (sub || "") !== lastSubText;
       lastSubText = sub || "";
@@ -632,8 +751,8 @@
       const subEl = document.getElementById("subtitle-box");
       const qEl = document.getElementById("question-pill");
       if (lastSubText && overlayCfg.show_subtitle !== false) {
-        subEl.textContent = lastSubText;
         subEl.style.display = "block";
+        layoutSubtitle(lastSubText, !textChanged || skipAnim);
         if (!skipAnim && textChanged) {
           subEl.classList.remove("anim-fade_up", "anim-pop_in");
           if (overlayCfg.animation && overlayCfg.animation !== "none") {
@@ -642,6 +761,7 @@
           }
         }
       } else {
+        stopSubPages();
         subEl.style.display = "none";
       }
       if (lastQText && overlayCfg.show_question_pill !== false) {
@@ -940,6 +1060,7 @@
     es.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
       if(data.type==="bg_update") applyBackground(data);
+      if (preview && data.type === "preview_update" && data.enabled === false) stopPreviewStream("预览已在控制台关闭");
       if(data.type==="play_action") playStageAction(data);
       if (data.type === "overlay_update") applyOverlayConfig(data);
       if (data.type === "status") {
@@ -978,7 +1099,15 @@
       pc = null;
       if (old) old.close();
     });
-    connectWebRTC();
+    if (preview) {
+      // 预览页：先确认控制台的“预览开关”是开着的，关着就不连画面（省 CPU 编码）
+      fetch("/api/preview").then(r => r.json()).then(d => {
+        if (d && d.enabled === false) stopPreviewStream("预览开关已关闭，到控制台打开「直播画面预览」");
+        else connectWebRTC();
+      }).catch(() => connectWebRTC());
+    } else {
+      connectWebRTC();
+    }
   </script>
 </body>
 </html>

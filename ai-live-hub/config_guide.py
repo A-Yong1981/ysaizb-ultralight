@@ -34,6 +34,15 @@ GUIDE_ITEMS: List[Dict[str, Any]] = [
      "recommend": "hubert", "restart": "engine", "level": "basic",
      "plain": "决定“听声音对口型”用哪套耳朵。HuBERT 口型更准，约占 1.3GB 显存；WeNet 不到 1GB，口型略逊。每个主播训练时选的是哪种，播出时就会自动用哪种，这里只是默认值。",
      "pro": "HuBERT-Large FP16 25fps 特征 [16,32,32]；WeNet encoder.onnx 20fps 特征 [128,16,32]，按形象 meta.json 自动匹配。"},
+    {"key": "env.UL_AV_OFFSET_MS", "group": "数字人引擎", "label": "音画同步微调(毫秒)", "type": "int",
+     "min": -500, "max": 1000, "recommend": 0, "restart": "engine", "level": "basic",
+     "plain": "正常保持 0。如果看直播时“声音说完了嘴还在动”，说明嘴型比声音慢，就把它调大（每次加 40，约 1 帧）；"
+              "如果“嘴先动、声音后到”，就调成负数。改完重启数字人引擎再看。",
+     "pro": "音频包发送时刻 = 会话时钟 t0 + 包序号×20ms + 偏移；视频帧不受影响。用于抵消浏览器/OBS 解码渲染的固定延迟差。"},
+    {"key": "env.UL_MAX_PREVIEW", "group": "数字人引擎", "label": "最多几个预览窗口", "type": "int",
+     "min": 0, "max": 3, "recommend": 1, "restart": "engine", "level": "advanced",
+     "plain": "OBS 开播时，网页/桌面端的预览会共享 OBS 同一路画面，不额外算口型，但每多一个预览窗口要多一份视频编码。1 个就够看；填 0 表示 OBS 开播时不允许预览。",
+     "pro": "role=preview 的 /offer 在已有主画面时创建 MirrorSession，复用渲染帧，只增加 aiortc 编码；超过上限返回错误。"},
     {"key": "env.UL_BACKEND", "group": "数字人引擎", "label": "口型模型运行方式", "type": "choice",
      "choices": [["onnx", "ONNX（推荐，更省更稳）"], ["torch", "PyTorch（调试用）"]],
      "recommend": "onnx", "restart": "engine", "level": "advanced",
@@ -66,6 +75,25 @@ GUIDE_ITEMS: List[Dict[str, Any]] = [
      "recommend": "127.0.0.1", "restart": "engine", "level": "advanced",
      "plain": "只给本机用最安全。改成局域网开放后，同一 WiFi 下的人都能给你的数字人塞话、提交训练任务。",
      "pro": "aiohttp 监听地址；中控通过 127.0.0.1:8020 访问，不需要对外开放。"},
+
+    # ---------------- 直播画面
+    {"key": "ui.preview_enabled", "group": "直播画面", "label": "直播画面预览", "type": "bool",
+     "recommend": True, "level": "basic",
+     "plain": "开着：网页控制台和桌面端能看到和 OBS 一样的直播画面（OBS 开播时共享同一路，不影响直播）；关掉：所有预览页自动断开，省一点 CPU。",
+     "pro": "/api/preview 开关；关闭时广播 preview_update，舞台页 preview=1 主动断开 WebRTC 并停止重连。"},
+    {"key": "overlay.font_size", "group": "直播画面", "label": "口播字幕字号(px)", "type": "int",
+     "min": 14, "max": 80, "recommend": 24, "level": "basic",
+     "plain": "字幕字有多大。调大以后会按屏幕宽度自动换行，不会跑出屏幕；竖屏会自动按 0.82 倍显示。长辈观众多可以调到 32~40。",
+     "pro": "overlay.html #subtitle-box：overflow-wrap:anywhere + 按 sub_max_lines 分屏或缩小。"},
+    {"key": "overlay.sub_max_lines", "group": "直播画面", "label": "字幕最多显示几行", "type": "int",
+     "min": 1, "max": 5, "recommend": 3, "level": "basic",
+     "plain": "字幕最多占几行，防止字调大后挡住主播的脸。一句话超过这么多行时，按下面的方式处理。",
+     "pro": "subFits() 以 line-height 计算实际行数。"},
+    {"key": "overlay.sub_overflow", "group": "直播画面", "label": "一句话太长放不下时", "type": "choice",
+     "choices": [["paginate", "保持字号，分几屏轮播（推荐）"], ["shrink", "自动缩小字号塞进去"]],
+     "recommend": "paginate", "level": "basic",
+     "plain": "推荐“分屏轮播”：字号保持你设的大小，长句按标点拆成几屏，跟着说话节奏依次显示；选“自动缩小”则整句一次显示，字会变小。",
+     "pro": "paginate：按标点贪心分页 + 二分切长段，每屏停留≈字数/4.6 秒；shrink：每次 -2px 直到放下（最小 14px，仍放不下转分页）。"},
 
     # ---------------- 弹幕与互动（config.json）
     {"key": "scheduler.auto_reply", "group": "弹幕互动", "label": "自动回答观众弹幕", "type": "bool",
@@ -174,7 +202,8 @@ PRESETS: List[Dict[str, Any]] = [
     {"id": "stable_2080", "title": "🛡️ 稳定开播（RTX 2080 推荐）", "kind": "engine",
      "plain": "第一次开播就选它：只输出 1 路画面、画面缩到 1280 高、显存留足余量、HuBERT 口型；弹幕回答、讲稿连播、主题点播全开。",
      "env": {"UL_MAX_SESSION": "1", "UL_ASR": "hubert", "UL_BACKEND": "onnx", "UL_MAX_FRAMES": "300",
-             "UL_OUT_HEIGHT": "1280", "UL_BATCH": "4", "UL_ORT_GPU_MB": "2048", "UL_MAX_LOADED": "2", "UL_HOST": "127.0.0.1"},
+             "UL_OUT_HEIGHT": "1280", "UL_BATCH": "4", "UL_ORT_GPU_MB": "2048", "UL_MAX_LOADED": "2", "UL_HOST": "127.0.0.1",
+             "UL_AV_OFFSET_MS": "0"},
      "config": {"scheduler": {"auto_reply": True, "auto_warmup": True, "gift_interrupt_narration": True},
                 "knowledge_base": {"enabled": True, "narration_mode": True,
                                    "topic_router": {"enabled": True, "detect_mode": "auto"}}}},
@@ -492,6 +521,11 @@ def doctor(cfg: Dict[str, Any], env: Dict[str, str], topic_count: int = -1) -> L
         add("info", "数字人画面没有缩小",
             "平台竖屏只有 720×1280，推更大的画面观众看不出来，却会让 CPU 编码更累。脸部大特写主播可以保留。",
             {"env": {"UL_OUT_HEIGHT": "1280"}})
+    avo = _int(env.get("UL_AV_OFFSET_MS"), 0)
+    if abs(avo) > 300:
+        add("info", f"音画微调设成了 {avo} 毫秒",
+            "调得比较大。引擎已改为音视频共用一个时钟，正常 0 就是对齐的；只有 OBS/浏览器本身有固定延迟时才需要小幅调整（±40~120）。",
+            {"env": {"UL_AV_OFFSET_MS": "0"}})
     gpu_mb = _int(env.get("UL_ORT_GPU_MB"), 2048)
     tts_mode = str(_get_path(cfg, "tts.mode", "edgetts"))
     asr = env.get("UL_ASR", "hubert")

@@ -17,6 +17,8 @@ rem   UL_BATCH       : frames per UNet call when catching up (needs dynamic-batc
 rem   UL_ORT_GPU_MB  : VRAM cap for ONNX Runtime arena (keeps whole box under 4.5GB)
 rem   UL_MAX_LOADED  : avatars/outfits kept in RAM (LRU)
 rem   UL_HOST        : 127.0.0.1 = this PC only (safe); 0.0.0.0 = whole LAN (unsafe)
+rem   UL_AV_OFFSET_MS: lip-sync fine tune in ms; positive = delay voice (mouth lags voice -> raise it)
+rem   UL_MAX_PREVIEW : preview windows sharing the OBS feed (each one costs an extra video encoder)
 set "UL_ASR=hubert"
 set "UL_BACKEND=onnx"
 set "UL_AVATAR=a_c52c"
@@ -28,6 +30,8 @@ set "UL_OUT_HEIGHT=1280"
 set "UL_ORT_GPU_MB=2048"
 set "UL_MAX_LOADED=2"
 set "UL_HOST=127.0.0.1"
+set "UL_AV_OFFSET_MS=0"
+set "UL_MAX_PREVIEW=1"
 set "UL_PORT=8020"
 set "HUB_PORT=28910"
 
