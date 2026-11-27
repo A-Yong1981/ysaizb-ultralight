@@ -276,6 +276,9 @@ def test_engine_security_and_perf_contracts():
     # 音画同步：两条轨道必须共用会话时钟（禁止各自 self._start 计时导致声音领先画面）
     assert "def clock_t0" in srv and "self.session.clock_t0(self.kind)" in srv and not re.search(r"self\._start\b", srv)
     assert "av_offset_ms" in srv
+    # 不说话时必须闭嘴：没有待机视频不能直接播训练原片（原片里本人在说话）
+    assert "def build_silent_patches" in srv and "def silence_window" in srv and "def idle_frame" in srv
+    assert "self.avatar.idle_frames[idx]" not in srv and "--idle_mouth %UL_IDLE_MOUTH%" in run_bat
     for flag in ("--host %UL_HOST%", "--batch %UL_BATCH%", "--out_height %UL_OUT_HEIGHT%", "--ort_gpu_mem_mb %UL_ORT_GPU_MB%",
                  "--av_offset_ms %UL_AV_OFFSET_MS%"):
         assert flag in run_bat, flag
