@@ -37,7 +37,7 @@ if str(ROOT) not in sys.path:
 if str(UDH_DIR) not in sys.path:
     sys.path.insert(0, str(UDH_DIR))
 
-from engine.audio_encoders import ensure_onnxruntime_cuda_paths  # noqa: E402
+from engine.audio_encoders import ensure_onnxruntime_cuda_paths, safe_torch_load  # noqa: E402
 from face_utils import compute_face_bbox, read_landmarks  # noqa: E402
 from unet import Model  # noqa: E402
 
@@ -280,12 +280,13 @@ def extract_hubert_features_from_speech(speech_16k: np.ndarray, model_source: st
         return ret.reshape(-1, 2, 1024).numpy().astype(np.float32)
 
 
-def _export_unet_onnx(ckpt_path: Path, onnx_path: Path, asr: str) -> None:
+def _export_unet_onnx(ckpt_path: Path, onnx_path: Path, asr: str, trusted: bool = False) -> None:
     import onnx
     import onnxruntime as ort
 
     net = Model(6, asr).eval()
-    ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+    # trusted=True 仅限本机刚训练出的权重或导入时已严格校验过的权重；其余一律 weights_only=True
+    ckpt = safe_torch_load(ckpt_path, map_location="cpu", trusted=trusted)
     state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     net.load_state_dict(state_dict)
 
@@ -300,6 +301,8 @@ def _export_unet_onnx(ckpt_path: Path, onnx_path: Path, asr: str) -> None:
             "output_names": ["output"],
             "opset_version": 11,
             "export_params": True,
+            # 动态 batch 维：引擎积压时可一次推理多帧追进度（旧模型无此维时引擎自动逐帧）
+            "dynamic_axes": {"input": {0: "batch"}, "audio": {0: "batch"}, "output": {0: "batch"}},
         }
         try:
             # PyTorch 2.9 兼容：优先使用 legacy TorchScript 导出确保 opset 11 静态图无 dynamo 报错
@@ -336,6 +339,9 @@ def run_pipeline(
     export_only: bool = False,
     base_avatar: str = "",
     progress_cb: Optional[Callable[[int, str], None]] = None,
+    num_workers: int = 2,
+    val_ratio: float = 0.05,
+    amp: bool = True,
 ) -> Path:
     aid = re.sub(r"[^a-zA-Z0-9_\-]", "", (avatar_id or "").strip())
     if not aid:
@@ -372,7 +378,7 @@ def run_pipeline(
         use_asr = str(meta_old.get("asr") or asr).lower()
         use_fps = FPS_BY_ASR.get(use_asr, fps)
         _emit(progress_cb, 40, f"导出并校验 unet.onnx ({use_asr})...")
-        _export_unet_onnx(pth_out, onnx_out, use_asr)
+        _export_unet_onnx(pth_out, onnx_out, use_asr, trusted=bool(meta_old.get("pth_trusted")))
         dst_full = av_dir / "full_body_img"
         exm = cv2.imread(str(dst_full / "0.jpg"))
         ih, iw = exm.shape[:2] if exm is not None else (int(meta_old.get("height", 0)), int(meta_old.get("width", 0)))
@@ -391,7 +397,9 @@ def run_pipeline(
             "has_idle_loop": (av_dir / "img_inference").is_dir(),
             "updated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        (av_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        meta_tmp = av_dir / "meta.json.tmp"
+        meta_tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(meta_tmp, av_dir / "meta.json")
         _emit(progress_cb, 100, f"Ultralight [{aid}] ONNX 导出完成 -> {onnx_out}")
         return av_dir
 
@@ -482,16 +490,21 @@ def run_pipeline(
     # 训练、复用基础主播模型换装，或导入外部权重
     pth_out = av_dir / "ultralight.pth"
     onnx_out = av_dir / "unet.onnx"
+    pth_trusted = False
     if base_dir is not None and epochs <= 0 and checkpoint is None:
         _emit(progress_cb, 75, f"复用基础主播 [{base_aid}] 已训练嘴型模型完成换装...")
         b_onnx = base_dir / "unet.onnx"
         b_pth = base_dir / "ultralight.pth"
+        try:
+            pth_trusted = bool(json.loads((base_dir / "meta.json").read_text(encoding="utf-8")).get("pth_trusted"))
+        except Exception:
+            pth_trusted = False
         if b_pth.is_file():
             shutil.copy2(b_pth, pth_out)
         if b_onnx.is_file():
             shutil.copy2(b_onnx, onnx_out)
         elif pth_out.is_file() and export_onnx:
-            _export_unet_onnx(pth_out, onnx_out, asr)
+            _export_unet_onnx(pth_out, onnx_out, asr, trusted=pth_trusted)
     elif checkpoint is not None:
         if not checkpoint.is_file():
             raise FileNotFoundError(f"找不到指定权重文件: {checkpoint}")
@@ -499,7 +512,10 @@ def run_pipeline(
         if checkpoint.suffix.lower() == ".onnx":
             shutil.copy2(checkpoint, onnx_out)
         else:
+            # 外部权重必须能以纯参数方式读取（weights_only=True），拒绝夹带可执行代码的恶意 .pth
+            safe_torch_load(checkpoint, map_location="cpu", trusted=False)
             shutil.copy2(checkpoint, pth_out)
+            pth_trusted = True
     else:
         _emit(progress_cb, 45, f"开始训练 Ultralight UNet ({asr}, epochs={epochs}, batch={batch_size})...")
         from datasetsss import MyDataset  # type: ignore
@@ -512,13 +528,45 @@ def run_pipeline(
         dataset = MyDataset(str(dataset_dir), asr)
         if len(dataset) < 2:
             raise RuntimeError("有效训练样本不足 2 帧")
-        loader = DataLoader(dataset, batch_size=max(1, min(batch_size, len(dataset))), shuffle=True, drop_last=False, num_workers=0)
+
+        # 留出少量帧做验证集：best.pth 按验证 loss 挑选，避免挑到过拟合最重的那份
+        val_set = None
+        train_set = dataset
+        n_val = int(len(dataset) * max(0.0, float(val_ratio)))
+        if n_val >= 8 and len(dataset) - n_val >= 32:
+            gen = torch.Generator().manual_seed(42)
+            train_set, val_set = torch.utils.data.random_split(dataset, [len(dataset) - n_val, n_val], generator=gen)
+        use_cuda = device.type == "cuda"
+        bs = max(1, min(batch_size, len(train_set)))
+
+        def _make_loader(ds, shuffle: bool, workers: int):
+            kw = {"batch_size": bs, "shuffle": shuffle, "drop_last": False, "num_workers": workers,
+                  "pin_memory": use_cuda}
+            if workers > 0:
+                kw["persistent_workers"] = True
+            return DataLoader(ds, **kw)
+
+        workers = max(0, int(num_workers))
+        loader = _make_loader(train_set, True, workers)
+        if workers > 0:
+            try:
+                next(iter(loader))   # Windows 多进程读数据失败时自动退回单进程
+            except Exception as exc:
+                _emit(progress_cb, 45, f"多进程读数据不可用（{exc}），退回单进程")
+                workers = 0
+                loader = _make_loader(train_set, True, 0)
+        val_loader = _make_loader(val_set, False, 0) if val_set is not None else None
 
         net = Model(6, asr).to(device)
         optimizer = optim.Adam(net.parameters(), lr=lr)
         pixel_criterion = torch.nn.L1Loss()
         perceptual_loss = PerceptualLoss(torch.nn.MSELoss(), device=device)
         start_epoch = resume_if_any(str(resume) if resume else "", net, optimizer, device)
+        # RTX 2080(Turing) 支持 FP16 Tensor Core：混合精度训练提速并省显存（BF16 不支持，故用 float16）
+        amp_on = bool(amp) and use_cuda
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_on)
+        _emit(progress_cb, 46, f"训练集 {len(train_set)} 帧 / 验证集 {len(val_set) if val_set is not None else 0} 帧，"
+                               f"batch={bs}，读数据进程={workers}，混合精度={'开' if amp_on else '关'}")
 
         best_loss = float("inf")
         for epoch in range(start_epoch, epochs):
@@ -526,21 +574,34 @@ def run_pipeline(
             ep_loss = 0.0
             steps = 0
             for imgs, labels, audio_feat in loader:
-                imgs = imgs.to(device)
-                labels = labels.to(device)
-                audio_feat = audio_feat.to(device)
-                preds = net(imgs, audio_feat)
-                loss = compute_total_loss(preds, labels, pixel_criterion, perceptual_loss)
+                imgs = imgs.to(device, non_blocking=True)
+                labels = labels.to(device, non_blocking=True)
+                audio_feat = audio_feat.to(device, non_blocking=True)
                 optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
+                with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=amp_on):
+                    preds = net(imgs, audio_feat)
+                    loss = compute_total_loss(preds, labels, pixel_criterion, perceptual_loss)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
                 ep_loss += float(loss.item())
                 steps += 1
             avg_loss = ep_loss / max(1, steps)
+            score = avg_loss
+            if val_loader is not None:
+                net.eval()
+                v_loss, v_steps = 0.0, 0
+                with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.float16, enabled=amp_on):
+                    for imgs, labels, audio_feat in val_loader:
+                        preds = net(imgs.to(device), audio_feat.to(device))
+                        v_loss += float(compute_total_loss(preds, labels.to(device), pixel_criterion, perceptual_loss).item())
+                        v_steps += 1
+                score = v_loss / max(1, v_steps)
             pct = 45 + int(((epoch + 1) / max(1, epochs)) * 43)
-            _emit(progress_cb, min(88, pct), f"Epoch {epoch + 1}/{epochs}  loss={avg_loss:.5f}")
-            if avg_loss < best_loss:
-                best_loss = avg_loss
+            _emit(progress_cb, min(88, pct), f"Epoch {epoch + 1}/{epochs}  loss={avg_loss:.5f}"
+                                             + (f"  val={score:.5f}" if val_loader is not None else ""))
+            if score < best_loss:
+                best_loss = score
                 save_checkpoint(str(ckpt_dir / "best.pth"), net, optimizer, epoch)
             if (epoch + 1) % max(1, save_every) == 0 or epoch == epochs - 1:
                 save_checkpoint(str(ckpt_dir / f"{epoch}.pth"), net, optimizer, epoch)
@@ -549,10 +610,11 @@ def run_pipeline(
         best_p = ckpt_dir / "best.pth"
         src_p = best_p if best_p.is_file() else (ckpt_dir / "last.pth")
         shutil.copy2(src_p, pth_out)
+        pth_trusted = True   # 本机刚训练出的权重
 
     if export_onnx and pth_out.is_file() and not (checkpoint is not None and checkpoint.suffix.lower() == ".onnx"):
         _emit(progress_cb, 92, "导出并校验 unet.onnx...")
-        _export_unet_onnx(pth_out, onnx_out, asr)
+        _export_unet_onnx(pth_out, onnx_out, asr, trusted=pth_trusted)
 
     exm = cv2.imread(str(dst_full / "0.jpg"))
     ih, iw = exm.shape[:2] if exm is not None else (0, 0)
@@ -566,11 +628,14 @@ def run_pipeline(
         "height": int(ih),
         "has_onnx": onnx_out.is_file(),
         "has_pth": pth_out.is_file(),
+        "pth_trusted": bool(pth_trusted and pth_out.is_file()),
         "has_idle_loop": (av_dir / "img_inference").is_dir(),
         "base_avatar": base_aid,
         "created_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    (av_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    meta_tmp = av_dir / "meta.json.tmp"
+    meta_tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(meta_tmp, av_dir / "meta.json")
     _emit(progress_cb, 100, f"Ultralight 形象 [{aid}] ({asr}/{fps}fps) 构建完成 -> {av_dir}")
     return av_dir
 
@@ -590,6 +655,9 @@ def main() -> int:
     ap.add_argument("--base_avatar", default="", help="已有主播英文 ID（用于同主播零训练换装或微调服饰）")
     ap.add_argument("--no-onnx", action="store_true", help="不导出 ONNX")
     ap.add_argument("--export_only", action="store_true", help="仅将已有 ultralight.pth 重导为 unet.onnx")
+    ap.add_argument("--num_workers", type=int, default=2, help="读数据进程数（喂饱显卡；Windows 出错会自动退回 0）")
+    ap.add_argument("--val_ratio", type=float, default=0.05, help="留作验证集的帧比例（按验证 loss 挑 best.pth）")
+    ap.add_argument("--no-amp", action="store_true", help="关闭 FP16 混合精度训练")
     args = ap.parse_args()
 
     run_pipeline(
@@ -606,6 +674,9 @@ def main() -> int:
         export_onnx=not args.no_onnx,
         export_only=bool(args.export_only),
         base_avatar=args.base_avatar,
+        num_workers=args.num_workers,
+        val_ratio=args.val_ratio,
+        amp=not args.no_amp,
     )
     return 0
 

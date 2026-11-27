@@ -10,6 +10,13 @@ from pathlib import Path
 
 HUB_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = HUB_DIR.parent
+if str(HUB_DIR) not in sys.path:
+    sys.path.insert(0, str(HUB_DIR))
+
+import config_guide  # noqa: E402
+
+# 全新克隆没有 config.json / platform_profiles.json（被 .gitignore 排除）：从 *.example.json 自动生成
+config_guide.ensure_runtime_configs(HUB_DIR)
 
 
 def test_u_port_and_obs_isolation():
@@ -178,7 +185,107 @@ def test_overlay_subtitles_and_free_fonts():
     print("[PASS] test_overlay_subtitles_and_free_fonts")
 
 
+def test_topic_router_viewer_requests():
+    """主题点播：按主题索引全部讲稿；明确点播命中主题，普通提问/闲聊/知识库没有的主题不点播。"""
+    import asyncio
+    import topic_router as tr
+
+    idx = tr.TopicIndex(HUB_DIR / "kb_data", {"chunk_max_chars": 65})
+    res = idx.build()
+    assert res["topics"] >= 10 and res["docs"] >= 3, res
+    expect = {
+        "主播先讲讲防骗吧": "防骗",
+        "想听三国": "三国",
+        "能不能说说AI换脸": "换脸",
+        "聊聊逆风局": "逆风",
+        "介绍一下RAG": "RAG",
+    }
+    for text, word in expect.items():
+        r = asyncio.run(idx.route(None, text, [], ""))
+        assert r["is_request"] and word.lower() in r["topic"]["title"].lower(), (text, r["reason"], r.get("topic"))
+        plan = idx.build_plan(r["tid"], user="测试")
+        assert plan and len(plan["beats"]) >= 2 and "测试" in plan["beats"][0]["text"] and plan["beats"][-1].get("outro")
+    for text in ("AI会犯错吗", "主播好", "讲讲量子力学", "验证码能告诉别人吗"):
+        r = asyncio.run(idx.route(None, text, [], ""))
+        assert not r["is_request"], (text, r)
+    assert tr.fill_template("{user}想听「{title}」{user.__class__}", user="A", title="B") == "A想听「B」{user.__class__}"
+    print(f"[PASS] test_topic_router_viewer_requests (topics={res['topics']})")
+
+
+def test_config_guide_wizard_presets_doctor():
+    """傻瓜配置：每项都有白话说明；预设/向导写入 env.bat 保持 ASCII+CRLF；体检能发现 2080 主机红线问题。"""
+    import shutil
+    import tempfile
+
+    for it in config_guide.GUIDE_ITEMS:
+        assert it["plain"] and it["label"] and "recommend" in it, it["key"]
+    with tempfile.TemporaryDirectory() as td:
+        hub = Path(td) / "hub"
+        hub.mkdir()
+        for f in ("config.example.json", "platform_profiles.example.json"):
+            shutil.copyfile(HUB_DIR / f, hub / f)
+        shutil.copyfile(ROOT_DIR / "env.bat", Path(td) / "env.bat")
+        assert set(config_guide.ensure_runtime_configs(hub)) == {"config.json", "platform_profiles.json"}
+        w = config_guide.wizard({"pc": "busy", "content": "interactive", "ai": "rules"})
+        res = config_guide.apply_patch(hub, Path(td), w["patch"])
+        assert res["restart_engine"] is True and res["changed"]
+        env = config_guide.parse_env_bat(Path(td) / "env.bat")
+        assert env["UL_ASR"] == "wenet" and env["UL_OUT_HEIGHT"] == "720" and env["UL_HOST"] == "127.0.0.1"
+        raw = (Path(td) / "env.bat").read_bytes()
+        assert raw.isascii() and b"\n" not in raw.replace(b"\r\n", b"")
+        cfg = json.loads((hub / "config.json").read_text(encoding="utf-8"))
+        assert cfg["knowledge_base"]["topic_router"]["detect_mode"] == "rules"
+        try:
+            config_guide.update_env_bat(Path(td) / "env.bat", {"UL_HOST": "x & del *"})
+            raise AssertionError("unsafe env value must be rejected")
+        except ValueError:
+            pass
+    bad = config_guide.doctor({}, {"UL_HOST": "0.0.0.0", "UL_MAX_SESSION": "2", "UL_MAX_FRAMES": "600",
+                                   "UL_OUT_HEIGHT": "0", "UL_MAX_LOADED": "4"}, topic_count=0)
+    levels = {f["title"]: f["level"] for f in bad}
+    assert any(l == "error" for l in levels.values()) and len(bad) >= 4, levels
+    print(f"[PASS] test_config_guide_wizard_presets_doctor (items={len(config_guide.GUIDE_ITEMS)}, presets={len(config_guide.PRESETS)})")
+
+
+def test_engine_security_and_perf_contracts():
+    """引擎：默认只监听本机、CORS 不放行 *、.pth 安全加载、串行说话队列、打断代次、显存上限、动态 batch、训练子进程。"""
+    srv = (ROOT_DIR / "engine" / "ultralight_server.py").read_text(encoding="utf-8")
+    enc = (ROOT_DIR / "engine" / "audio_encoders.py").read_text(encoding="utf-8")
+    pipe = (ROOT_DIR / "scripts" / "ultralight_pipeline.py").read_text(encoding="utf-8")
+    run_bat = (ROOT_DIR / "scripts" / "run_engine.bat").read_text(encoding="utf-8")
+    assert 'os.environ.get("UL_HOST", "127.0.0.1")' in srv and 'host="0.0.0.0"' not in srv
+    assert 'defaults={"*"' not in srv and "DEFAULT_CORS_ORIGINS" in srv
+    assert "weights_only=True" in enc and "UL_ALLOW_UNSAFE_PTH" in enc
+    assert "weights_only=False" not in srv and "weights_only=False" not in pipe
+    assert "submit_text" in srv and "_flush_gen" in srv and "_apply_flush" in srv and "split_sentences" in srv
+    assert "gpu_mem_limit" in enc and "kSameAsRequested" in enc
+    assert "OrderedDict" in srv and "_evict_lru" in srv and "out_height" in srv
+    assert "subprocess.Popen" in srv and "code=409" in srv
+    assert '"dynamic_axes"' in pipe and "GradScaler" in pipe and "val_ratio" in pipe and "pth_trusted" in pipe
+    for flag in ("--host %UL_HOST%", "--batch %UL_BATCH%", "--out_height %UL_OUT_HEIGHT%", "--ort_gpu_mem_mb %UL_ORT_GPU_MB%"):
+        assert flag in run_bat, flag
+    env = config_guide.parse_env_bat(ROOT_DIR / "env.bat")
+    assert env.get("UL_MAX_SESSION") == "1" and env.get("UL_HOST") == "127.0.0.1"
+    print("[PASS] test_engine_security_and_perf_contracts")
+
+
+def test_obs_presets_25fps():
+    """OBS 预设与 HuBERT 25fps 数字人一致，避免 30fps 每秒重复 5 帧的顿挫。"""
+    inis = list((ROOT_DIR / "OBS配置").glob("*/basic.ini"))
+    assert len(inis) >= 10
+    for ini in inis:
+        txt = ini.read_text(encoding="utf-8")
+        assert "FPSType=1" in txt and "FPSInt=25" in txt, ini
+    bk_txt = (ROOT_DIR / "launcher" / "backend.py").read_text(encoding="utf-8")
+    assert 'cp.set("Video", "FPSInt", "25")' in bk_txt
+    print(f"[PASS] test_obs_presets_25fps ({len(inis)} presets)")
+
+
 if __name__ == "__main__":
+    test_topic_router_viewer_requests()
+    test_config_guide_wizard_presets_doctor()
+    test_engine_security_and_perf_contracts()
+    test_obs_presets_25fps()
     test_u_port_and_obs_isolation()
     test_p01_bat_pure_ascii_crlf()
     test_p04_requirements_hygiene()

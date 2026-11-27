@@ -14,23 +14,28 @@ OVERLAY_FONT_PRESETS: List[Dict[str, str]] = [
     {
         "id": "noto_sans_sc",
         "label": "思源黑体 Noto Sans SC（SIL OFL 1.1 免费商用·推荐）",
-        "css_family": '"Noto Sans SC", "Source Han Sans SC", sans-serif',
+        "css_family": '"Noto Sans SC", "Source Han Sans SC", "LXGW WenKai", sans-serif',
         "license": "SIL OFL 1.1（永久免费商用）",
         "local_file": r"C:\Windows\Fonts\NotoSansSC-VF.ttf",
+        # 02_download_models.bat 会把思源黑体下载到 static/fonts；没下载时退回随包内置的霞鹜文楷，绝不落到微软雅黑等商用字体
+        "bundle_file": "NotoSansSC-VF.ttf",
+        "fallback_bundle": "LXGWWenKaiLite-Regular.ttf",
     },
     {
         "id": "noto_serif_sc",
         "label": "思源宋体 Noto Serif SC（SIL OFL 1.1 免费商用·说书国学）",
-        "css_family": '"Noto Serif SC", "Source Han Serif SC", serif',
+        "css_family": '"Noto Serif SC", "Source Han Serif SC", "LXGW WenKai", serif',
         "license": "SIL OFL 1.1（永久免费商用）",
         "local_file": r"C:\Windows\Fonts\NotoSerifSC-VF.ttf",
+        "fallback_bundle": "LXGWWenKaiLite-Regular.ttf",
     },
     {
         "id": "source_han_serif_heavy",
         "label": "思源宋特粗 Source Han Heavy（SIL OFL 1.1 免费商用·醒目大字）",
-        "css_family": '"Source Han Serif SC Heavy", "Noto Serif SC", serif',
+        "css_family": '"Source Han Serif SC Heavy", "Noto Serif SC", "LXGW WenKai", serif',
         "license": "SIL OFL 1.1（永久免费商用）",
         "local_file": r"C:\Windows\Fonts\Source Han Serif SC Heavy (TrueType).ttf",
+        "fallback_bundle": "LXGWWenKaiLite-Regular.ttf",
     },
     {
         "id": "smiley_sans",
@@ -151,6 +156,11 @@ def resolve_font_path(font_id: str, fonts_dir: Optional[Path] = None) -> Optiona
         p = Path(spec["local_file"])
         if p.is_file():
             return p
+    # 本机没装该字体：退回随包内置的同协议免费字体（预览与直播画面都不会落到商用字体）
+    if spec.get("fallback_bundle") and fonts_dir:
+        cand = fonts_dir / spec["fallback_bundle"]
+        if cand.is_file():
+            return cand
     return None
 
 

@@ -10,10 +10,12 @@
 ## 2. 独立架构边界与端口契约（禁止与 ysaizb 冲突）
 - **禁止修改旧方案**：任何针对 `ysaizb-ultralight` 的开发或测试均严禁改动 `d:\Antigravity\ysaizb`、`D:\LiveTalking` 或 `livetalking` conda 环境。
 - **固定端口表**：
-  - `127.0.0.1:8020` — `engine/ultralight_server.py`（WebRTC + 音频驱动）
+  - `127.0.0.1:8020` — `engine/ultralight_server.py`（WebRTC + 音频驱动；默认只监听本机，严禁默认 `0.0.0.0`）
   - `127.0.0.1:28910` — `ai-live-hub/server.py`（中控 + WebUI + SSE `/api/events`）
   - `127.0.0.1:4455` — OBS WebSocket v5（使用独立 Scene Collection `AI_Live_Hub_Ultralight`）
 - **前端极简约束**：`ai-live-hub/static/index.html` 与 `overlay.html` 必须保持零构建、纯原生 HTML/CSS/JS 单文件。
+- **配置说明唯一真源**：新增/修改任何可调参数，必须同步登记到 `ai-live-hub/config_guide.py` 的 `GUIDE_ITEMS`（白话说明 + 专业说明 + 2080 推荐值），WebUI 与桌面端只从这里读取。
+- **主题点播边界**：`topic_router.py` 只调取知识库已有讲稿；AI 只能从主题目录编号中选择，不得生成主题内容；配置模板只能用 `fill_template()`，禁止 `str.format`。
 - **纯规则健康探针**：`ai-live-hub/health_monitor.py` 必须保持纯规则确定性检查，禁止引入 LLM 诊断或重型依赖。
 
 ## 3. Ultralight 训练与脚本规范

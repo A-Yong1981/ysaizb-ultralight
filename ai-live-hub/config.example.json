@@ -24,7 +24,7 @@
     "asr": "hubert",
     "backend": "onnx",
     "port": 8020,
-    "max_session": 2
+    "max_session": 1
   },
   "livetalking": {
     "base_url": "http://127.0.0.1:8020",
@@ -159,6 +159,26 @@
     "top_k": 3,
     "min_score": 0.18,
     "min_score_dense": 0.42,
+    "topic_router": {
+      "_说明": "观众弹幕点播知识库主题：说“先讲讲防骗/想听三国”时，把知识库里该主题的讲稿整段推给数字人口播，讲完回到原章节。detect_mode: auto=关键词秒判+AI复核（推荐）| ai=每条都让AI判断 | rules=只用关键词",
+      "enabled": true,
+      "detect_mode": "auto",
+      "strong_score": 0.55,
+      "min_score": 0.3,
+      "ai_min_confidence": 0.55,
+      "ai_timeout": 6,
+      "max_beats": 6,
+      "cooldown_sec": 300,
+      "answer_during_topic": true,
+      "answer_every_n_beats": 2,
+      "max_pending": 3,
+      "prefer_active_doc": true,
+      "intro_template": "好嘞，{user}想听「{title}」，咱们这就展开讲讲。",
+      "queued_template": "收到{user}的点播，「{title}」排在下一个讲。",
+      "outro_template": "「{title}」就先讲到这儿，还想听哪个主题，直接在公屏打“讲讲”加主题名。",
+      "resume_template": "咱们接着说「{title}」。",
+      "recap_template": "「{title}」刚刚讲过，没赶上的朋友我挑重点再说一句："
+    },
     "converter_audience": "成年观众（家长、祖辈与中老年朋友），零基础；涉及孩子的内容一律写成家长如何引导和陪伴孩子",
     "converter_max_chars": 30000,
     "embedding": {

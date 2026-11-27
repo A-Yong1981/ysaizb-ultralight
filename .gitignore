@@ -17,6 +17,9 @@ voices/*.mp3
 voices/*.flac
 voices/*.m4a
 
+# 可选下载的大字体（02_download_models.bat 自动获取，不进仓库）
+ai-live-hub/static/fonts/NotoSansSC-VF.ttf
+
 # 运行时缓存与编译产物
 tts_cache/
 **/kb_data/.indexes/
@@ -29,5 +32,7 @@ venv/
 .pytest_cache/
 dist/
 build/
+*.tmp
+logs/tmp_uploads/
 *.exe
 *.spec

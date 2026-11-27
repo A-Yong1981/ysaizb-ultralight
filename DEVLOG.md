@@ -7,9 +7,20 @@
 - **U04（Hubert FP16 显存控制）**：RTX 2080 仅 8GB 显存且为 Turing sm_75 架构，HuBERT-Large 加载后强制 `.half()`，避免占用额外显存；WeNet 全程 ONNX Runtime 执行。
 - **U05（OBS 场景集合与端口完全隔离）**：本方案固定使用 `:8020` / `:28910` / `AI_Live_Hub_Ultralight`，严禁与原 `ysaizb`（`:8010` / `:28900` / `AI_Live_Hub`）混用端口或覆盖配置文件。
 - **U06（Windows `onnxruntime-gpu` CUDA 12 与 `os.wait3` 兼容）**：PyPI 最新 `onnxruntime-gpu>=1.24`（如 `1.32.0`）依赖 CUDA 13 (`cublasLt64_13.dll`)，而 `torch 2.9.1+cu128` 为 CUDA 12.8 + cuDNN 9；因此 `requirements.txt` 固定锁定 `onnxruntime-gpu==1.22.0`，并通过 `ensure_onnxruntime_cuda_paths()` 自动将 `torch/lib` 加入 DLL 搜索路径以启用 GPU 推理。此外上游 `data_utils/get_landmark.py` 存在未使用的 `from os import wait3`（仅 Linux 存在），已在 `ultralight_pipeline.py` 注入兼容垫片。
+- **U07（引擎只给本机用）**：`ultralight_server.py` 默认 `--host 127.0.0.1`、CORS 只放行本机 `:28910/:8020`；中控在本机代理 WebRTC，绝不需要 `0.0.0.0`。`.pth` 一律经 `safe_torch_load()`（`weights_only=True`），只有 `meta.json` 标记 `pth_trusted` 的本机训练/已校验权重才放宽；外部权重导入时先严格校验。
+- **U08（说话必须串行保序 + 打断必须清干净）**：`/human` 与 `/humanaudio` 统一进每会话一条 `_speech_worker` 队列（分句流水线合成，首句先开口）；打断时 `_flush_gen` 代次 +1，丢弃打断前仍在合成/提特征的句子，并由渲染线程清空音视频轨道缓冲与 `_audio_accum`。
+- **U09（2080 主机资源红线落到代码）**：帧按 `UL_OUT_HEIGHT`（默认 1280）缩放后常驻、`UL_MAX_FRAMES` 默认 300、形象 LRU 只留 `UL_MAX_LOADED` 个；ONNX Runtime 显存池 `UL_ORT_GPU_MB` 封顶；`UL_MAX_SESSION` 默认 1；训练走独立子进程，有直播画面在线时返回 409 拒绝（可强制）。
+- **U10（主题点播只讲知识库里有的）**：`topic_router.py` 按「分类/章/小节」跨讲稿建主题目录；AI 只能从目录编号里选，不能编主题；冷却期内重复点播只回顾重点；模板一律 `fill_template()`，禁止对配置模板用 `str.format`。
+- **U11（配置说明唯一真源）**：参数白话说明、预设、向导、体检全部在 `ai-live-hub/config_guide.py`，WebUI 与桌面端共用；`/api/guide/apply` 只接受预设/向导/登记过的参数/体检修复项，不接受任意补丁；写 env.bat 校验 ASCII 与危险字符。
 - **P01~P38 通用铁律**：`.bat` 纯 ASCII + CRLF、锁定 `websockets==12.0`、`requirements.txt` 不含 `torch`、`*.example.json` 无真实 Key、JSON 原子写入、不留 `.bak/_old/archive/`、全成人视角合规、`health_monitor.py` 纯规则探针。
 
 ## 2. 迭代记录
+- **2026-11-27（审核优化：主题点播 + 傻瓜配置 + 引擎安全/性能 + 训练提速）**：
+  1. 新增 [topic_router.py](ai-live-hub/topic_router.py)：全部讲稿按主题索引；弹幕“先讲讲/想听/说说 + 主题”由关键词秒判、含糊说法交给已配置大模型复核（只能选目录编号），命中即插播该主题讲稿（礼物 > 点播 > 普通提问 > 章节连播），点播期间可穿插答疑，讲完自动回原章节；讲稿支持 `> [主题词] a|b` 补充观众叫法；新增 `/api/topics*` 接口、WebUI「🎯 观众点播主题」面板与桌面端「🎯 主题点播目录」。
+  2. 新增 [config_guide.py](ai-live-hub/config_guide.py)：31 项参数白话说明 + 专业说明 + 2080 推荐值，5 个一键预设、三问向导、按主机红线体检与一键修复；新增 `/api/guide*`、WebUI「🧸 傻瓜配置向导」与桌面端顶栏「🧸 傻瓜配置」。
+  3. 引擎：默认只监听本机、CORS 收紧、`.pth` 安全加载、串行保序说话队列 + 分句流水线、打断清空轨道缓冲、帧缩放 + LRU、ORT 显存上限、动态 batch 追帧、事件唤醒替代 4ms 轮询、训练子进程 + 直播中 409 防呆 + 可取消、会话 ID 改 uuid。
+  4. 训练：FP16 混合精度、多进程读数据（失败自动退回）、5% 验证集挑 best.pth、ONNX 动态 batch 导出、meta.json 原子写入。
+  5. 工程：`.gitattributes` 强制 .bat CRLF 并全部转换；全新克隆自动由 `*.example.json` 生成配置；OBS 预设改 25fps；字幕字体缺失时退回随包霞鹜文楷（可选下载思源黑体）；修复桌面端「测试问法检索」缺 `import json`；`T()`/礼物模板改安全填充；平台状态原子写入；新增 4 组回归测试。
 - **2026-11-27（直播画面章节卡/口播字幕配置与 SIL OFL 1.1 免费商用字体）**：
   1. 新增唯一真源模块 [overlay_presets.py](ai-live-hub/overlay_presets.py)，内置 5 款 `SIL OFL 1.1` 永久免费可商用字体预设（思源黑体 Noto Sans SC、思源宋体 Noto Serif SC、思源宋特粗、离线随包内置的得意黑 `SmileySans-Oblique.ttf` 与霞鹜文楷 `LXGWWenKaiLite-Regular.ttf`）与 6 种字幕/板书视觉效果预设。
   2. 在 [server.py](ai-live-hub/server.py) 暴露 `GET/POST /api/overlay/config` 与 SSE `overlay_update` 热推送，改造 [overlay.html](ai-live-hub/static/overlay.html) 支持右上角/左上角知识库章节卡开关与下部口播字幕实时切换、字号/颜色/描边/底框透明度/边距与动效配置，OBS 无需刷新浏览器源。

@@ -39,12 +39,56 @@ def ensure_onnxruntime_cuda_paths() -> None:
 ensure_onnxruntime_cuda_paths()
 
 
+def make_ort_session(model_path: Path, gpu_mem_mb: int = 0, intra_threads: int = 2):
+    """创建限显存的 ONNX Runtime 会话（RTX 2080：显存池按需增长且设上限，防止挤爆 OBS NVENC）。"""
+    import onnxruntime as ort
+
+    ensure_onnxruntime_cuda_paths()
+    so = ort.SessionOptions()
+    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    so.intra_op_num_threads = max(1, int(intra_threads))
+    providers: list = []
+    if "CUDAExecutionProvider" in ort.get_available_providers():
+        cuda_opts = {
+            "device_id": 0,
+            "arena_extend_strategy": "kSameAsRequested",
+            "cudnn_conv_algo_search": "HEURISTIC",
+            "do_copy_in_default_stream": True,
+        }
+        if int(gpu_mem_mb or 0) > 0:
+            cuda_opts["gpu_mem_limit"] = int(gpu_mem_mb) * 1024 * 1024
+        providers.append(("CUDAExecutionProvider", cuda_opts))
+    providers.append("CPUExecutionProvider")
+    try:
+        return ort.InferenceSession(str(model_path), sess_options=so, providers=providers)
+    except Exception:
+        # 旧版 onnxruntime 不认识某个 provider 选项时退回默认参数
+        plain = [p[0] if isinstance(p, tuple) else p for p in providers]
+        return ort.InferenceSession(str(model_path), sess_options=so, providers=plain)
+
+
+def safe_torch_load(path: Path, map_location="cpu", trusted: bool = False):
+    """安全加载 .pth：先用 weights_only=True（只读纯参数，拒绝夹带可执行代码的恶意权重）。
+
+    trusted=True 仅用于本项目自己训练产出、或导入时已通过严格校验的权重；
+    外部来源的权重若无法以纯参数方式读取，需用户确认来源可信后设置环境变量 UL_ALLOW_UNSAFE_PTH=1。
+    """
+    try:
+        return torch.load(str(path), map_location=map_location, weights_only=True)
+    except Exception as exc:
+        if trusted or os.environ.get("UL_ALLOW_UNSAFE_PTH") == "1":
+            return torch.load(str(path), map_location=map_location, weights_only=False)
+        raise RuntimeError(
+            f"权重文件 {Path(path).name} 不是纯参数文件（可能夹带可执行代码），已拒绝加载。"
+            f"确认来源可信后可设置环境变量 UL_ALLOW_UNSAFE_PTH=1 再试。原始错误: {exc}"
+        ) from exc
+
+
 class WeNetEncoder:
     """基于 WeNet encoder.onnx 的 20fps 音频编码器。"""
 
-    def __init__(self, encoder_onnx: Path) -> None:
+    def __init__(self, encoder_onnx: Path, gpu_mem_mb: int = 768) -> None:
         import kaldi_native_fbank as knf
-        import onnxruntime as ort
 
         ensure_onnxruntime_cuda_paths()
 
@@ -59,12 +103,7 @@ class WeNetEncoder:
         opts.mel_opts.debug_mel = False
         self._fbank_opts = opts
 
-        providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if "CUDAExecutionProvider" in ort.get_available_providers()
-            else ["CPUExecutionProvider"]
-        )
-        self._sess = ort.InferenceSession(str(encoder_onnx), providers=providers)
+        self._sess = make_ort_session(encoder_onnx, gpu_mem_mb=gpu_mem_mb)
         self._offset = np.ones((1,), dtype=np.int64) * 100
         self._att_cache = np.zeros([3, 8, 16, 128], dtype=np.float32)
         self._cnn_cache = np.zeros([3, 1, 512, 14], dtype=np.float32)

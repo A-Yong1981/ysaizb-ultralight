@@ -1,0 +1,15 @@
+# Windows 批处理必须 CRLF，否则 cmd 的 goto / call :label 可能跳错位置（AGENTS.md P01）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# 其余文本统一 LF
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.ini text
+# 二进制
+*.mp4 binary
+*.ttf binary
+*.ico binary
+*.onnx binary
+*.pth binary

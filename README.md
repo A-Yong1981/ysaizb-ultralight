@@ -46,9 +46,20 @@
 6. **OBS 画面接入**：浏览器源指向 `http://127.0.0.1:28910/stage?layer=all`（在桌面启动器点「一键自动配置并导入 OBS」会自动导入 `AI_Live_Hub_Ultralight` 场景集合；内置 5 款 `SIL OFL 1.1` 免费商用字体并支持实时热更新右上角/左上角知识库章节卡与下部口播字幕）。
 7. **重新打包桌面 EXE**（如修改了 `launcher/` 代码或首次从 GitHub 源码克隆）：双击 `build_exe.bat`。
 
-## 4. 关键脚本说明
+## 4. 观众点播主题 + 傻瓜配置（新）
+
+- **观众点播主题**：观众在弹幕打“先讲讲防骗”“想听三国”“说说 AI 换脸”，只要知识库里有这个主题，主播就把这部分讲稿整段讲给他听（默认 6 段约 1.5 分钟），讲完自动“回到「原章节」接着讲”。说法明显的关键词秒判；说得含糊的（“讲讲那个怎么防止被骗钱的事”）交给已配置的大模型判断，大模型只能从主题目录里选，不会编内容。点播中途有人提问会先简短回答，再“咱们接着说……”。
+  - WebUI「🎯 观众点播主题」面板：看当前点播、切换识别方式、测试观众说法会点到哪、浏览主题目录并手动“现在讲”。
+  - 桌面端「3. 知识库主题」页 →「🎯 主题点播目录」。
+  - 讲稿里给章节加一行 `> [主题词] 防骗|反诈|骗子`，写上观众平时的叫法，识别更准。
+- **🧸 傻瓜配置向导**（WebUI 高级功能区 / 桌面端顶栏「🧸 傻瓜配置」）：回答 3 个大白话问题自动配好；或点一个预设（🛡️ 稳定开播 · RTX 2080 推荐 / 👄 口型最清晰 / 🍃 最省资源 / 💬 互动答疑优先 / 📚 讲课连播优先）；「配置体检」按 12400F / 32GB / RTX 2080 红线找问题并一键修复；每个参数都有白话说明和推荐值。
+- **2080 主机推荐（稳定开播预设即此值）**：`UL_MAX_SESSION=1`、`UL_OUT_HEIGHT=1280`、`UL_MAX_FRAMES=300`、`UL_MAX_LOADED=2`、`UL_ORT_GPU_MB=2048`、`UL_BATCH=4`、`UL_HOST=127.0.0.1`；OBS 25fps + NVENC。
+
+## 5. 关键脚本说明
 
 - `engine/ultralight_server.py`：原生 Ultralight 实时 WebRTC 推流与音频驱动服务（兼容 `ai-live-hub` `/offer`, `/human`, `/humanaudio`, `/is_speaking`, `/interrupt_talk`, `/set_audiotype`, `/api/avatar/*`）。
 - `scripts/download_models.py`：下载 `encoder.onnx`、HuBERT、VGG19，校验 SCRFD/PFLD。
 - `scripts/ultralight_pipeline.py`：一键预处理 -> `train.py` 训练 -> `unet.onnx` 导出（ONNXRuntime 校验）-> 封装进 `avatars/<id>/`。
+- `ai-live-hub/topic_router.py`：知识库主题目录 + 弹幕点播识别（关键词秒判 + AI 复核）+ 插播计划。
+- `ai-live-hub/config_guide.py`：参数白话说明、一键预设、三问向导、配置体检（WebUI 与桌面端共用）。
 - `launcher/app.py`：独立桌面启动器（双主题界面、全 6 步工作流与 Ultralight 参数/训练集成）。
