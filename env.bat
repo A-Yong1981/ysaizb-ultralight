@@ -19,6 +19,7 @@ rem   UL_MAX_LOADED  : avatars/outfits kept in RAM (LRU)
 rem   UL_HOST        : 127.0.0.1 = this PC only (safe); 0.0.0.0 = whole LAN (unsafe)
 rem   UL_AV_OFFSET_MS: lip-sync fine tune in ms; positive = delay voice (mouth lags voice -> raise it)
 rem   UL_MAX_PREVIEW : preview windows sharing the OBS feed (each one costs an extra video encoder)
+rem   UL_IDLE_MOUTH  : auto = closed mouth when silent (idle video if trained with one, else model-generated); raw = old behavior
 set "UL_ASR=hubert"
 set "UL_BACKEND=onnx"
 set "UL_AVATAR=a_c52c"
@@ -32,6 +33,7 @@ set "UL_MAX_LOADED=2"
 set "UL_HOST=127.0.0.1"
 set "UL_AV_OFFSET_MS=0"
 set "UL_MAX_PREVIEW=1"
+set "UL_IDLE_MOUTH=auto"
 set "UL_PORT=8020"
 set "HUB_PORT=28910"
 

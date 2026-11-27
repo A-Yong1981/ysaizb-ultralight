@@ -1219,7 +1219,7 @@ class LauncherApp(tk.Tk):
 
         ag2 = ttk.Frame(self.frm_tr_adv, style="Card.TFrame")
         ag2.pack(fill="x", pady=2)
-        ttk.Label(ag2, text="待机视频(可选)：", style="Card.TLabel").pack(side="left")
+        ttk.Label(ag2, text="闭嘴待机视频(可选，20秒不说话、自然呼吸眨眼)：", style="Card.TLabel").pack(side="left")
         ttk.Entry(ag2, textvariable=self.var_tr_idle, width=26).pack(side="left", padx=2)
         ttk.Button(ag2, text="选待机", style="Compact.TButton", command=lambda: self.var_tr_idle.set(filedialog.askopenfilename(filetypes=[("Video", "*.mp4 *.mov")]) or self.var_tr_idle.get())).pack(side="left", padx=(2, 8))
         ttk.Label(ag2, text="外部权重(.pth/.onnx)：", style="Card.TLabel").pack(side="left")

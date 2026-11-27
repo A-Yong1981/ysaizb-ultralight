@@ -23,6 +23,7 @@ i5-12400F / 32GB / RTX 2080 8GB 优化要点：
   * 打断 = 清空待渲染队列 + 音视频轨道缓冲 + 残余音频，并用“代次号”丢弃打断前仍在合成的句子
   * 音视频共用会话时钟（画面开播为 t0），不再各自计时导致声音领先；可用 --av_offset_ms 微调
   * 预览页（role=preview）在 OBS 已连接时只“镜像”同一路画面：不额外推理、不占名额、不抢 OBS 的说话会话
+  * 不说话时显示闭嘴画面：没有闭嘴待机视频的主播，加载时用口型模型 + 静音特征生成闭嘴贴片（--idle_mouth）
   * 帧按 --out_height 缩放后常驻内存，形象 LRU 只保留 --max_loaded_avatars 个
   * ONNX Runtime 显存池设上限（--ort_gpu_mem_mb），积压时按 --batch 批量追帧（需动态 batch 的 unet.onnx）
   * 训练在独立子进程运行；有直播画面在线时默认拒绝训练，防止显存爆满断播
@@ -202,7 +203,11 @@ class LoadedAvatar:
         self.fps = fps
         self.speak_frames = speak_frames
         self.speak_bboxes = speak_bboxes
+        self.has_idle_video = bool(idle_frames)       # 训练时提供了“闭嘴待机视频”(img_inference)
         self.idle_frames = idle_frames or speak_frames
+        # 没有待机视频时：用口型模型 + 静音特征生成每一帧的“闭嘴”脸部贴片，待机时贴回原画面。
+        # 否则待机直接播训练视频原片——原片里本人在说话，就会出现“没声音、嘴还在动”。
+        self.silent_patches: Optional[List[np.ndarray]] = None
         self.unet_ort = unet_ort
         self.unet_torch = unet_torch
         self.device = device
@@ -224,14 +229,54 @@ class LoadedAvatar:
             region = frame[ymin:ymax, xmin:xmax]
             self.face_crops.append(cv2.resize(region, (FACE_CROP_SIZE, FACE_CROP_SIZE), interpolation=cv2.INTER_AREA))
 
+    def build_silent_patches(self, silence_win: np.ndarray, chunk: int = 8) -> int:
+        """对每个说话循环帧用“静音”音频特征推理一次，缓存闭嘴脸部贴片（已缩放到人脸框大小）。"""
+        patches: List[np.ndarray] = []
+        n = len(self.speak_frames)
+        step = max(1, chunk if self.batch_ok else 1)
+        for start in range(0, n, step):
+            idxs = list(range(start, min(n, start + step)))
+            preps = [self._prepare(i, silence_win) for i in idxs]
+            if self.batch_ok and len(preps) > 1:
+                out = self._run(np.stack([p[2] for p in preps]), np.stack([p[3] for p in preps]))
+                preds = list(out) if out is not None else [None] * len(preps)
+            else:
+                preds = []
+                for pp in preps:
+                    out = self._run(pp[2][None], pp[3][None])
+                    preds.append(out[0] if out is not None else None)
+            for (idx, crop_ori, _img, _aud), pred in zip(preps, preds):
+                xmin, ymin, xmax, ymax = self.speak_bboxes[idx]
+                if pred is None:
+                    patches.append(self.speak_frames[idx][ymin:ymax, xmin:xmax].copy())
+                    continue
+                pred_bgr = np.clip(pred.transpose(1, 2, 0) * 255.0, 0, 255).astype(np.uint8)
+                crop_ori[FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE, FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE] = pred_bgr
+                patches.append(cv2.resize(crop_ori, (xmax - xmin, ymax - ymin)))
+        self.silent_patches = patches
+        return len(patches)
+
+    def idle_frame(self, frame_idx: int) -> np.ndarray:
+        """待机画面：有待机视频就播待机视频；否则播说话循环帧 + 闭嘴贴片（与说话共用帧序号，身体动作连贯）。"""
+        if self.silent_patches is None:
+            return self.idle_frames[_bounce_index(len(self.idle_frames), frame_idx)]
+        idx = _bounce_index(len(self.speak_frames), frame_idx)
+        base = self.speak_frames[idx].copy()
+        xmin, ymin, xmax, ymax = self.speak_bboxes[idx]
+        base[ymin:ymax, xmin:xmax] = self.silent_patches[idx]
+        return base
+
     def memory_mb(self) -> float:
         total = sum(f.nbytes for f in self.speak_frames) + sum(c.nbytes for c in self.face_crops)
+        if self.silent_patches:
+            total += sum(x.nbytes for x in self.silent_patches)
         if self.idle_frames is not self.speak_frames:
             total += sum(f.nbytes for f in self.idle_frames)
         return total / (1024 * 1024)
 
     def release(self) -> None:
         self.speak_frames, self.idle_frames, self.face_crops = [], [], []
+        self.silent_patches = None
         self.unet_ort = None
         self.unet_torch = None
 
@@ -317,6 +362,23 @@ class EngineRuntime:
                 enc = HuBERTEncoder(MODELS_DIR / "hubert-large-ls960-ft")
             self.encoders[asr] = enc
             return enc
+
+    def silence_window(self, asr: str) -> np.ndarray:
+        """取“完全不出声”时的音频特征窗口（与说话时同形状），用来让口型模型输出闭嘴画面。"""
+        key = f"_silence_{asr}"
+        cached = getattr(self, key, None)
+        if cached is not None:
+            return cached
+        enc = self.get_encoder(asr)
+        quiet = np.random.default_rng(0).normal(0.0, 1e-4, SAMPLE_RATE * 2).astype(np.float32)   # 2 秒极轻底噪 ≈ 静音
+        feats = enc.extract(quiet)
+        mid = max(4, min(int(feats.shape[0]) - 4, int(feats.shape[0]) // 2))
+        win = feats[mid - 4:mid + 4]
+        if win.shape[0] < 8:
+            win = np.concatenate([win, np.repeat(win[-1:], 8 - win.shape[0], axis=0)], axis=0)
+        win = win.astype(np.float32)
+        setattr(self, key, win)
+        return win
 
     def _scale(self, im: np.ndarray, bbox: Optional[Tuple[int, int, int, int]] = None):
         """按 --out_height 等比缩小帧（宽取偶数，便于视频编码），人脸框同步缩放。"""
@@ -465,6 +527,18 @@ class EngineRuntime:
                 device=self.device,
                 batch=int(self.opt.batch),
             )
+            idle_mode = str(getattr(self.opt, "idle_mouth", "auto") or "auto").lower()
+            if idle_mode == "closed" or (idle_mode == "auto" and not loaded.has_idle_video):
+                try:
+                    t_s = time.perf_counter()
+                    n_p = loaded.build_silent_patches(self.silence_window(asr))
+                    logger.info(f"[{avatar_id}] 已生成 {n_p} 帧闭嘴待机画面（{time.perf_counter() - t_s:.1f}s）："
+                                f"不说话时嘴巴闭合，不再播放训练原片的说话口型")
+                except Exception as exc:
+                    loaded.silent_patches = None
+                    logger.warning(f"[{avatar_id}] 生成闭嘴待机画面失败，暂用原片待机（不说话时嘴可能会动）: {exc}")
+            elif loaded.has_idle_video:
+                logger.info(f"[{avatar_id}] 使用训练时提供的闭嘴待机视频作为待机画面")
             self.avatars[avatar_id] = loaded
             self.avatars.move_to_end(avatar_id)
             logger.info(f"[{avatar_id}] 帧缓存约 {loaded.memory_mb():.0f}MB，"
@@ -862,9 +936,14 @@ class UltralightSession(_SharedClock):
             else:
                 if self._speaking and self._speech_q.empty() and not self._tts_busy:
                     self._speaking = False
-                idx = _bounce_index(len(self.avatar.idle_frames), self._idle_idx)
-                self._idle_idx += 1
-                self._push_video(self.avatar.idle_frames[idx])
+                if self.avatar.silent_patches is not None:
+                    # 闭嘴待机与说话共用帧序号：从说话切到待机身体动作不跳帧
+                    idle_bgr = self.avatar.idle_frame(self._speak_idx)
+                    self._speak_idx += 1
+                else:
+                    idle_bgr = self.avatar.idle_frame(self._idle_idx)
+                    self._idle_idx += 1
+                self._push_video(idle_bgr)
                 self._push_audio_slice(silence_slice, None)
             dt = time.perf_counter() - t0
             if dt < frame_interval * 0.5 and self.video_track._queue.qsize() >= 3:
@@ -1084,6 +1163,8 @@ def create_app(runtime: EngineRuntime) -> web.Application:
             "out_height": runtime.opt.out_height,
             "batch": runtime.opt.batch,
             "av_offset_ms": runtime.opt.av_offset_ms,
+            "idle_mouth": runtime.opt.idle_mouth,
+            "idle_closed": {aid: a.silent_patches is not None for aid, a in runtime.avatars.items()},
         })
 
     async def offer(request):
@@ -1380,6 +1461,9 @@ def main() -> None:
                     help="ONNX Runtime 显存池上限(MB)，0=不限制")
     ap.add_argument("--max_preview", type=int, default=_env_int("UL_MAX_PREVIEW", 1),
                     help="最多几个预览窗口共享 OBS 画面（每个多一份视频编码，CPU 吃紧时调 1）")
+    ap.add_argument("--idle_mouth", default=os.environ.get("UL_IDLE_MOUTH", "auto") or "auto",
+                    choices=["auto", "closed", "raw"],
+                    help="不说话时的嘴：auto=有闭嘴待机视频就用、没有就用模型生成闭嘴画面（推荐）；closed=总是模型生成；raw=播训练原片（旧行为，嘴会动）")
     ap.add_argument("--av_offset_ms", type=int, default=_env_int("UL_AV_OFFSET_MS", 0),
                     help="音画微调(ms)：正数=声音延后（嘴型比声音慢时调大），负数=声音提前；范围 -500~1000")
     opt = ap.parse_args()

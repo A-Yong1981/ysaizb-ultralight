@@ -34,6 +34,12 @@ GUIDE_ITEMS: List[Dict[str, Any]] = [
      "recommend": "hubert", "restart": "engine", "level": "basic",
      "plain": "决定“听声音对口型”用哪套耳朵。HuBERT 口型更准，约占 1.3GB 显存；WeNet 不到 1GB，口型略逊。每个主播训练时选的是哪种，播出时就会自动用哪种，这里只是默认值。",
      "pro": "HuBERT-Large FP16 25fps 特征 [16,32,32]；WeNet encoder.onnx 20fps 特征 [128,16,32]，按形象 meta.json 自动匹配。"},
+    {"key": "env.UL_IDLE_MOUTH", "group": "数字人引擎", "label": "不说话时主播的嘴", "type": "choice",
+     "choices": [["auto", "自动闭嘴（推荐）"], ["closed", "总是用模型生成闭嘴画面"], ["raw", "播训练原片（旧版，嘴会一直动）"]],
+     "recommend": "auto", "restart": "engine", "level": "basic",
+     "plain": "讲稿段落之间、切换内容的空档里，主播嘴巴该闭上。“自动”：训练时给了闭嘴待机视频就用它（最自然，会眨眼呼吸）；"
+              "没给就让口型模型生成闭嘴画面。旧版会直接播训练视频原片，原片里本人在说话，所以会出现“没声音嘴还在动”。",
+     "pro": "加载形象时以 2 秒极轻底噪的编码器特征为静音窗，对每个说话循环帧推理一次并缓存闭嘴贴片；待机与说话共用帧序号。"},
     {"key": "env.UL_AV_OFFSET_MS", "group": "数字人引擎", "label": "音画同步微调(毫秒)", "type": "int",
      "min": -500, "max": 1000, "recommend": 0, "restart": "engine", "level": "basic",
      "plain": "正常保持 0。如果看直播时“声音说完了嘴还在动”，说明嘴型比声音慢，就把它调大（每次加 40，约 1 帧）；"
