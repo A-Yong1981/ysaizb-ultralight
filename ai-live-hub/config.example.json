@@ -1,0 +1,255 @@
+{
+  "background": {
+    "mode": "kb_auto",
+    "default_video": "bg_family_kitchen.mp4",
+    "chroma_color": "#00ff00",
+    "similarity": 0.34,
+    "smoothness": 0.08,
+    "spill": 0.16,
+    "doc_video_map": {
+      "01_adults_family_ai_basics.md": "bg_family_kitchen.mp4",
+      "02_parents_guide_kids_ai.md": "bg_study_desk.mp4",
+      "03_elders_practical_antifraud.md": "bg_antifraud_warn.mp4",
+      "04_ai_glossary_metaphors.md": "bg_tech_chalkboard.mp4",
+      "说书专场/05_storyteller_test.md": "bg_storyteller_teahouse.mp4",
+      "游戏解说/06_gaming_test.md": "bg_gaming_room.mp4",
+      "电脑硬件/07_hardware_test.md": "bg_hardware_lab.mp4"
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 28910
+  },
+  "ultralight": {
+    "asr": "hubert",
+    "backend": "onnx",
+    "port": 8020,
+    "max_session": 2
+  },
+  "livetalking": {
+    "base_url": "http://127.0.0.1:8020",
+    "avatar_id": "demo_ul_host",
+    "tts_voice": "zh-CN-XiaoxiaoNeural",
+    "avatars_dir": ""
+  },
+  "scheduler": {
+    "auto_reply": true,
+    "auto_warmup": true,
+    "warmup_interval_sec": 25,
+    "poll_interval_sec": 0.3,
+    "min_speak_guard_sec": 1.8,
+    "max_queue_size": 30,
+    "gift_interrupt_narration": true,
+    "short_chat_skip_dense": true
+  },
+  "persona": {
+    "name": "主播",
+    "name_en": "Host",
+    "style": "成人公益 AI 趣味科普 · 教家长与长辈回家引导孩子学 AI · 长辈实用防骗",
+    "system_prompt": "你是数字人主播{name}，你是面向成年人（家长、父母与中老年朋友）的公益AI趣味科普主播。【合规防举报铁律】本直播间仅面向成年观众，绝对不要用直接称呼、招呼未成年人的口吻说话，也绝不引导未成年人点赞、评论、打赏或互动；所有涉及孩子的AI教育内容，必须站在“教大人如何回家引导和陪伴孩子”的家长视角来讲解。若弹幕疑似未成年人发问，必须温和提醒本直播间面向成年人，建议由家长陪同辅导。【表达规范】必须用做饭、买菜、上学、带孙子等生活比喻讲解，专业词先用大白话翻译；回答控制在35到65个中文字以内，纯口语化，禁止输出Markdown符号、表情和括号动作。【伴学与隐私铁律】引导家长教孩子把AI当启发思路的学习帮手，绝不代写作业；反复提醒大人绝不透露孩子及家人的真实姓名、学校、住址、电话。【长辈防骗铁律】多讲实用免费用法和AI换脸拟声防骗技巧，提醒手机验证码、银行卡号、身份证号绝不告诉任何人；严禁推荐任何付费课程、训练营或收费App。【准确性】知识要准确，AI 产品更新很快，具体版本、价格、哪家最强要说明可能已变化，拿不准就直说不确定，不编数据；看病用药、投资理财、法律纠纷只讲通用常识并建议找医生、律师等专业人士；不聊政治、宗教和玄学，遇到就温和地把话题拉回 AI 科普；观众调侃抬杠时不生气，用一句俏皮话接住再讲知识。"
+  },
+  "stage_panel": {
+    "left_title": "家庭AI趣味科普（成人场）",
+    "left_lines": [
+      "做饭/带孙子比喻讲透AI",
+      "教大人如何陪孩子用AI不代写",
+      "长辈实用招 + AI防骗铁律"
+    ],
+    "right_title": "合规与公益公约",
+    "right_lines": [
+      "仅面向成年人，不引导未成年人",
+      "验证码/银行卡/身份证绝不外传",
+      "不推任何付费课程或收费App"
+    ],
+    "compliance_badge": "AI 实时生成画面 · Ultralight 成人公益科普"
+  },
+  "overlay": {
+    "show_kb_board": true,
+    "board_position": "top-right",
+    "show_info_card": true,
+    "show_badge": true,
+    "show_subtitle": true,
+    "show_question_pill": true,
+    "font_preset": "noto_sans_sc",
+    "effect_preset": "classic_dark",
+    "font_size": 24,
+    "board_font_size": 14,
+    "font_weight": 600,
+    "text_color": "#FFFFFF",
+    "stroke_color": "#000000",
+    "stroke_width": 2,
+    "bg_opacity": 78,
+    "bottom_offset_pct": 4,
+    "animation": "fade_up"
+  },
+  "llm_providers": [
+    {
+      "name": "DeepSeek",
+      "enabled": true,
+      "base_url": "https://api.deepseek.com",
+      "api_key": "填入你的 DeepSeek API Key（platform.deepseek.com 获取）",
+      "model": "deepseek-flash",
+      "timeout": 12,
+      "extra_body": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "note": "DeepSeek 官方（按量计费，很便宜）。deepseek-flash 默认开思考模式，直播短回复必须关掉：extra_body.thinking.type=disabled"
+    },
+    {
+      "name": "SiliconFlow-Free",
+      "enabled": true,
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_key": "填入你的硅基流动 Key",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "timeout": 12
+    },
+    {
+      "name": "ModelScope-Free",
+      "enabled": true,
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "api_key": "填入你的魔搭 Token",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "timeout": 12
+    }
+  ],
+  "tts": {
+    "mode": "edgetts",
+    "enable_cache": true,
+    "fallback_to_edgetts": true,
+    "siliconflow": {
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_key": "填入你的硅基流动 Key",
+      "model": "FunAudioLLM/CosyVoice2-0.5B",
+      "voice": "FunAudioLLM/CosyVoice2-0.5B:anna",
+      "speed": 1.0,
+      "gain": 0.0,
+      "sample_rate": 16000,
+      "emotion_prefix": "",
+      "timeout": 15
+    },
+    "gptsovits": {
+      "base_url": "http://127.0.0.1:9880",
+      "ref_audio_path": "D:/Antigravity/ysaizb-ultralight/voices/host_ref.wav",
+      "prompt_text": "在这里填写参考音频逐字对应的中文文本",
+      "prompt_lang": "zh",
+      "text_lang": "zh",
+      "speed_factor": 1.0,
+      "timeout": 15
+    }
+  },
+  "wardrobe_settings": {
+    "enable_danmaku_switch": true,
+    "cooldown_sec": 30,
+    "announce_after_switch": true,
+    "hidden_avatars": []
+  },
+  "wardrobe": [],
+  "knowledge_base": {
+    "_说明": "讲稿放在 ai-live-hub/kb_data/*.md；embedding.api_key 留空会自动复用 llm_providers 里硅基流动的 Key",
+    "enabled": true,
+    "narration_mode": true,
+    "narration_gap_sec": 3.5,
+    "loop_course": true,
+    "warmup_every_n_beats": 4,
+    "active_doc": "01_adults_family_ai_basics.md",
+    "chunk_max_chars": 65,
+    "max_narration_chars": 240,
+    "top_k": 3,
+    "min_score": 0.18,
+    "min_score_dense": 0.42,
+    "converter_audience": "成年观众（家长、祖辈与中老年朋友），零基础；涉及孩子的内容一律写成家长如何引导和陪伴孩子",
+    "converter_max_chars": 30000,
+    "embedding": {
+      "enabled": true,
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_key": "",
+      "model": "BAAI/bge-m3",
+      "timeout": 12
+    }
+  },
+  "health": {
+    "interval_sec": 5,
+    "vram_stable_gb": 4.5,
+    "vram_warn_gb": 6.0,
+    "vram_error_gb": 7.2,
+    "temp_warn_c": 78,
+    "temp_error_c": 85,
+    "queue_warn": 20,
+    "disk_warn_gb": 2.0,
+    "disk_error_gb": 0.5
+  },
+  "gift_interactions": {
+    "enabled": true,
+    "default_gesture": {
+      "video": "act_heart.mp4",
+      "sticker": "heart",
+      "label": "比心感谢",
+      "duration_sec": 4.0,
+      "reply": "哇，感谢{user}送的{num}个{gift}，给你比个大大的心！"
+    },
+    "rules": [
+      {
+        "id": "sunglasses",
+        "label": "戴墨镜",
+        "match_gifts": ["墨镜", "超酷墨镜", "大墨镜", "太阳镜"],
+        "match_chat": ["戴墨镜", "戴上墨镜", "墨镜"],
+        "video": "act_sunglasses.mp4",
+        "sticker": "sunglasses",
+        "duration_sec": 4.5,
+        "audiotype": 1,
+        "reply": "收到{user}的墨镜啦，墨镜一戴精神百倍，感谢支持！",
+        "chat_reply": "好嘞，墨镜马上戴上，酷不酷？咱们继续开讲！"
+      },
+      {
+        "id": "milktea",
+        "label": "拿奶茶",
+        "match_gifts": ["奶茶", "一杯奶茶", "咖啡", "棒棒糖", "啤酒", "可乐"],
+        "match_chat": ["喝奶茶", "拿奶茶", "拿杯奶茶", "干杯"],
+        "video": "act_milktea.mp4",
+        "sticker": "milktea",
+        "duration_sec": 4.5,
+        "audiotype": 1,
+        "reply": "谢谢{user}请我喝奶茶，润润嗓子接着给大家讲干货！",
+        "chat_reply": "来，举起奶茶跟大家碰个杯，歇口气咱们精彩继续！"
+      },
+      {
+        "id": "heart",
+        "label": "比心",
+        "match_gifts": ["小心心", "玫瑰", "爱心", "鲜花"],
+        "match_chat": ["比心", "比个心", "爱心"],
+        "video": "act_heart.mp4",
+        "sticker": "heart",
+        "duration_sec": 3.8,
+        "audiotype": 2,
+        "reply": "感谢{user}送的小心心，比个大大的心送给你，有问题随时打在公屏！",
+        "chat_reply": "给你比个大大的心，谢谢大家一路以来的热情支持！"
+      },
+      {
+        "id": "wave",
+        "label": "挥手",
+        "match_gifts": ["人气票", "粉丝团灯牌", "灯牌", "赞"],
+        "match_chat": ["挥手", "挥挥手", "打招呼", "你好", "老师好", "主播好"],
+        "video": "act_wave.mp4",
+        "sticker": "wave",
+        "duration_sec": 3.5,
+        "audiotype": 3,
+        "reply": "欢迎{user}来到直播间，热情挥手跟您打个招呼！",
+        "chat_reply": "挥手问好呀，欢迎各位成年朋友来到直播间一起聊天！"
+      },
+      {
+        "id": "thumbsup",
+        "label": "点赞",
+        "match_gifts": ["大拇指", "赞赞", "666"],
+        "match_chat": ["竖大拇指", "点个赞", "听懂了", "讲得好"],
+        "video": "act_thumbsup.mp4",
+        "sticker": "thumbsup",
+        "duration_sec": 3.5,
+        "audiotype": 1,
+        "reply": "谢谢{user}的鼓励，给你竖个大拇指，咱们继续往下聊！",
+        "chat_reply": "听到您说听懂了太开心啦，竖个大拇指给您点赞！"
+      }
+    ]
+  }
+}

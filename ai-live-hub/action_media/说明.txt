@@ -1,0 +1,10 @@
+放 3~5 秒真实人物动作短片(25fps MP4，支持纯绿幕 #00FF00 或原背景)，播报礼物/手势时舞台自动将人物层切换播放：
+  act_sunglasses.mp4  —— 人物戴上真墨镜互动
+  act_milktea.mp4     —— 人物拿奶茶干杯互动
+  act_heart.mp4       —— 人物双手比心真动作
+  act_wave.mp4        —— 人物热情挥手真动作
+  act_thumbsup.mp4    —— 人物竖大拇指真动作
+
+多主播专属目录：
+  将短片放在 action_media/<主播avatar_id>/ 目录下（例如 action_media/xiaorou/act_sunglasses.mp4），
+  切换主播时会自动播放对应主播自己的真实戴墨镜/手势短片；也可在控制台直接点击上传。

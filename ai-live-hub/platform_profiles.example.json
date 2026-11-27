@@ -1,0 +1,294 @@
+{
+  "_说明": "每次开播只激活 1 个平台。obs_profile / obs_scene 必须与 OBS 里新建的配置文件、场景名称完全一致。prompt_addon 追加在 config.json 的基础人设之后；system_prompt 非空时整段替换基础人设（海外英文平台用）。{name} 会替换为主播名字。 kb_doc 是该平台绑定的讲稿（kb_data 下的 .md）；kb_narration_mode=true 时空闲自动按章节连播，false 时只用讲稿答疑；kb_reset_cursor=true 每次切到该平台从第 1 段开讲，false 接着上次断点讲。TikTok 需要英文讲稿（同样须为成年观众视角）：用「一键拆稿」选 TikTok + 英文生成后绑定即可。 讲稿绑定按 ai_popsci_kb_pack_v2：抖音→01 家庭启蒙综合场，B站→02 家长伴学专场，视频号→03 长辈实用与防骗专场，YouTube→01。",
+  "active_profile": "douyin",
+  "obs_ws": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 4455,
+    "password": ""
+  },
+  "profiles": {
+    "douyin": {
+      "label": "抖音",
+      "lang": "zh",
+      "orientation": "landscape",
+      "canvas": "1296×1080 横屏小窗",
+      "obs_profile": "Douyin_1296x1080",
+      "obs_scene": "抖音横屏",
+      "room_hint": "抖音直播间号（需先运行 douyinLive :1089）",
+      "collector_cmd": [
+        "{python}",
+        "danmaku_relay.py",
+        "--room",
+        "{room}",
+        "--hub",
+        "{hub}"
+      ],
+      "proxy": "",
+      "avatar_id": "",
+      "edge_voice": "zh-CN-XiaoxiaoNeural",
+      "kb_doc": "01_adults_family_ai_basics.md",
+      "kb_enabled": true,
+      "kb_narration_mode": true,
+      "kb_reset_cursor": true,
+      "kb_style": "douyin",
+      "kb_language": "zh",
+      "tts_voice": "",
+      "tts_emotion_prefix": "用温暖亲切、像跟家长和长辈聊家常一样的语气说",
+      "tts_speed": 1.0,
+      "prompt_addon": "【当前平台：抖音】观众节奏快，开头一句就要抛出有趣的 AI 小知识或小技巧。每三四次回复最多一次自然地提醒点点小心心、点个关注、加入粉丝团点亮灯牌，以科普为主。不要提及其他直播或电商平台的名字，不要引导观众去站外、加群、扫码或私下联系。",
+      "use_base_warmup": true,
+      "warmup_topics": [
+        "刚进来的朋友点个关注，{name}每天教大人小孩轻松玩转 AI，想问 AI 能干啥，直接打在公屏上。",
+        "觉得有意思就给{name}点点小心心，点满一万个，我现场教大家一个用 AI 的超实用小窍门。",
+        "加入粉丝团点亮灯牌的朋友，{name}优先回答你的 AI 问题，今天想学 AI 画画、AI 聊天还是 AI 防骗？"
+      ],
+      "extra_blocked_keywords": [],
+      "output_blocked_keywords": [
+        "快手",
+        "视频号",
+        "B站",
+        "哔哩哔哩",
+        "淘宝",
+        "拼多多",
+        "小红书",
+        "加群",
+        "私信我"
+      ],
+      "stage_panel": {
+        "left_title": "家庭AI趣味科普（成人场）",
+        "left_lines": [
+          "做饭/带孙子比喻讲透AI",
+          "教大人如何陪孩子用AI不代写",
+          "长辈实用招 + AI防骗铁律"
+        ],
+        "right_title": "合规与公益公约",
+        "right_lines": [
+          "仅面向成年人，不引导未成年人",
+          "验证码/银行卡/身份证绝不外传",
+          "不推任何付费课程或收费App"
+        ],
+        "compliance_badge": "AI 实时生成画面 · 成人公益科普"
+      }
+    },
+    "bilibili": {
+      "label": "B站",
+      "lang": "zh",
+      "orientation": "landscape",
+      "canvas": "1920×1080 横屏",
+      "obs_profile": "Bilibili_1920x1080",
+      "obs_scene": "B站横屏",
+      "room_hint": "B站房间号（弹幕用外部 cyber-xiaoya-danmaku 推送）",
+      "collector_cmd": [],
+      "proxy": "",
+      "avatar_id": "",
+      "edge_voice": "zh-CN-XiaoxiaoNeural",
+      "kb_doc": "02_parents_guide_kids_ai.md",
+      "kb_enabled": true,
+      "kb_narration_mode": true,
+      "kb_reset_cursor": false,
+      "kb_style": "bilibili",
+      "kb_language": "zh",
+      "tts_voice": "",
+      "tts_emotion_prefix": "用亲切条理清晰、像教育科普博主聊天的语气说",
+      "tts_speed": 1.05,
+      "prompt_addon": "【当前平台：B站】观众偏年轻，喜欢有梗又有干货的 AI 科普，可以适度玩常见网络梗，称呼观众为小伙伴，把公屏叫弹幕，可以稍微多讲一点原理。偶尔俏皮地求一键三连、关注或投喂，不要每句都求。不要提及其他平台名字，不要引导站外交流。",
+      "use_base_warmup": true,
+      "warmup_topics": [
+        "弹幕有点安静，小伙伴们是不是在偷偷和 AI 聊天？觉得有用的话一键三连安排一下，{name}继续给大家整活。",
+        "新来的小伙伴点个关注，{name}的直播间主打一个听得懂的 AI 科普，弹幕随便问，答不上来我当场认输。",
+        "来做个弹幕投票：想听 AI 画画原理的扣一，想听 AI 为啥会胡说八道的扣二，想听 AI 防骗的扣三。"
+      ],
+      "extra_blocked_keywords": [],
+      "output_blocked_keywords": [
+        "抖音",
+        "快手",
+        "视频号",
+        "淘宝",
+        "拼多多",
+        "加群",
+        "私信我"
+      ],
+      "stage_panel": {
+        "left_title": "家长AI伴学方法课",
+        "left_lines": [
+          "大人怎么教孩子用AI启发思路",
+          "拒绝代写作业 · 守好孩子隐私",
+          "生活比喻翻译AI专业黑话"
+        ],
+        "right_title": "直播间安全公约",
+        "right_lines": [
+          "仅面向家长与成年观众交流",
+          "不问也不收姓名/学校/住址/电话",
+          "纯公益分享 · 无任何付费推销"
+        ],
+        "compliance_badge": "AI 实时生成画面 · 家长伴学"
+      }
+    },
+    "wechat": {
+      "label": "视频号",
+      "lang": "zh",
+      "orientation": "portrait",
+      "canvas": "720×1280 竖屏",
+      "obs_profile": "WeChat_720x1280",
+      "obs_scene": "视频号竖屏",
+      "room_hint": "视频号（弹幕用外部 cyber-xiaoya-danmaku CDP 模式推送）",
+      "collector_cmd": [],
+      "proxy": "",
+      "avatar_id": "",
+      "edge_voice": "zh-CN-XiaoxiaoNeural",
+      "kb_doc": "03_elders_practical_antifraud.md",
+      "kb_enabled": true,
+      "kb_narration_mode": true,
+      "kb_reset_cursor": true,
+      "kb_style": "wechat",
+      "kb_language": "zh",
+      "tts_voice": "",
+      "tts_emotion_prefix": "用温柔沉稳、语速稍慢且清晰耐心的语气说",
+      "tts_speed": 0.92,
+      "prompt_addon": "【当前平台：微信视频号】观众以中老年朋友为主，语速放慢、用词通俗、不用网络梗。重点讲手机语音问 AI、拍照识花识物、AI 防骗这类实用内容，一次只讲一个步骤。健康类问题只讲通用常识并提醒遵医嘱，绝不推荐药品、保健品、课程和 App。可以邀请点赞、关注、转发给家人，但绝对不要用抽奖、红包、送礼等利益诱导转发分享。不要提及其他平台名字。",
+      "use_base_warmup": true,
+      "warmup_topics": [
+        "叔叔阿姨们注意，现在骗子会用 AI 模仿家人的声音和脸。接到借钱的视频电话，先挂断再自己打回去确认，转给家人看看。",
+        "不会打字也能用 AI：按住手机上的话筒说话，就能让 AI 帮你查天气、问菜谱、读文章，觉得有用点个赞。",
+        "AI 说的话不一定都对，看病吃药这种大事一定要问医生，别光听 AI 的。觉得有道理的朋友点个赞。",
+        "出门看到不认识的花，可以用手机拍一下让 AI 识别，它会告诉你叫什么名字，下次带孙子出门就能考考他啦。"
+      ],
+      "extra_blocked_keywords": [],
+      "output_blocked_keywords": [
+        "抖音",
+        "快手",
+        "B站",
+        "淘宝",
+        "拼多多",
+        "抽奖",
+        "红包",
+        "包治",
+        "保证治好",
+        "吃了就好"
+      ],
+      "stage_panel": {
+        "left_title": "长辈AI实用与防骗课堂",
+        "left_lines": [
+          "买菜看说明写祝福一学就会",
+          "三招识破AI换脸拟声骗局",
+          "教爷爷奶奶带孙子趣味科普"
+        ],
+        "right_title": "防骗与合规铁律",
+        "right_lines": [
+          "仅面向成年观众 · 纯公益科普",
+          "验证码/银行卡/身份证绝不给",
+          "不推付费课·不推收费App"
+        ],
+        "compliance_badge": "AI 实时生成画面 · 成人公益防骗"
+      }
+    },
+    "youtube": {
+      "label": "YouTube",
+      "lang": "zh",
+      "orientation": "landscape",
+      "canvas": "1280×720 横屏",
+      "obs_profile": "YouTube_1280x720",
+      "obs_scene": "YouTube横屏",
+      "room_hint": "YouTube 频道/直播（弹幕用外部 cyber-xiaoya-danmaku 推送）",
+      "collector_cmd": [],
+      "proxy": "http://127.0.0.1:7890",
+      "avatar_id": "",
+      "edge_voice": "zh-CN-XiaoxiaoNeural",
+      "kb_doc": "01_adults_family_ai_basics.md",
+      "kb_enabled": true,
+      "kb_narration_mode": true,
+      "kb_reset_cursor": false,
+      "kb_style": "youtube",
+      "kb_language": "bilingual",
+      "tts_voice": "",
+      "tts_emotion_prefix": "用轻松自然的语气说",
+      "tts_speed": 1.0,
+      "prompt_addon": "【当前平台：YouTube】本条规则优先于上面的纯中文要求：观众用中文提问就用中文回答，用英文提问就用简短口语英文回答，英文不超过 35 个单词。可以邀请订阅频道和点赞。不聊中外政治话题。本平台同样只面向成年观众。",
+      "use_base_warmup": true,
+      "warmup_topics": [
+        "Welcome! This is a fun AI class for parents and grandparents. Ask me anything about AI, in English or Chinese.",
+        "欢迎来到 YouTube 直播间的朋友，中英文提问都可以，喜欢的话订阅一下频道，{name}每天陪你轻松学 AI。"
+      ],
+      "extra_blocked_keywords": [],
+      "output_blocked_keywords": [],
+      "max_text_length": 150,
+      "max_speech_chars": 200,
+      "stage_panel": {
+        "left_title": "Fun AI Class",
+        "left_lines": [
+          "中英文提问都可以 · Ask in EN or 中文",
+          "For parents & seniors",
+          "Subscribe for daily AI tips"
+        ],
+        "right_title": "Stream Info",
+        "right_lines": [
+          "For adult viewers · 面向成年观众",
+          "Never share verification codes",
+          "Be kind in chat"
+        ],
+        "compliance_badge": "AI-Generated Host · AI 生成"
+      }
+    },
+    "tiktok": {
+      "label": "TikTok",
+      "lang": "en",
+      "orientation": "portrait",
+      "canvas": "720×1280 竖屏",
+      "obs_profile": "TikTok_720x1280",
+      "obs_scene": "TikTok竖屏",
+      "room_hint": "TikTok 主播用户名（需 pip install TikTokLive）",
+      "collector_cmd": [
+        "{python}",
+        "tiktok_relay.py",
+        "--user",
+        "{room}",
+        "--hub",
+        "{hub}",
+        "--proxy",
+        "{proxy}"
+      ],
+      "proxy": "http://127.0.0.1:7890",
+      "avatar_id": "",
+      "edge_voice": "en-US-JennyNeural",
+      "kb_doc": "",
+      "kb_enabled": false,
+      "kb_narration_mode": false,
+      "kb_reset_cursor": true,
+      "kb_style": "tiktok",
+      "kb_language": "en",
+      "tts_voice": "",
+      "tts_emotion_prefix": "",
+      "tts_speed": 1.0,
+      "system_prompt": "You are {name}, a funny and warm AI host on TikTok Live who teaches parents and seniors about artificial intelligence in plain, playful English. Use everyday analogies, keep replies under 30 words, and end with a quick question to the chat when natural. Be accurate; AI products change fast, so say when details may be outdated. This stream is for adults only: never address children directly, never encourage minors to watch, like, comment or send gifts, and frame any topic about kids as tips for parents. If someone says they are a student or under 18, kindly suggest they go online with a parent and never share personal info. Never ask for anyone's name, school, address or phone number. Refuse to do homework or give homework answers. Remind people never to share passwords or verification codes. Never recommend paid courses, bootcamps or paid apps. For medical, legal or money questions give only general info and suggest asking a professional. Avoid politics and religion. No emojis, no markdown, no stage directions.",
+      "prompt_addon": "",
+      "use_base_warmup": false,
+      "warmup_topics": [
+        "Fun AI fact! The term artificial intelligence was coined back in 1956, so AI is older than many grandparents watching. Where are you watching from?",
+        "Did you know AI can make things up with total confidence? It is called hallucination, so always double check important answers.",
+        "Scam alert! AI can copy a voice. If family calls asking for money, hang up and call them back yourself. Share this with your parents.",
+        "In 1997 a computer called Deep Blue beat the world chess champion. Today AI can chat, draw and explain homework. What would you ask it?",
+        "Want better answers from AI? Tell it who you are, what you need, and how long the answer should be. Try it and tell me in the comments!",
+        "Welcome to the live! I am {name}, your AI buddy. I am a digital human and my lips move in real time. Ask me anything about AI!"
+      ],
+      "extra_blocked_keywords": [],
+      "output_blocked_keywords": [],
+      "max_text_length": 150,
+      "max_speech_chars": 220,
+      "stage_panel": {
+        "left_title": "How to Interact",
+        "left_lines": [
+          "Comment any AI question",
+          "Double tap for likes",
+          "Gifts get instant shoutouts"
+        ],
+        "right_title": "Fun AI Class",
+        "right_lines": [
+          "For parents & seniors · adults only",
+          "Never share verification codes"
+        ],
+        "compliance_badge": "AI-Generated Host"
+      }
+    }
+  }
+}

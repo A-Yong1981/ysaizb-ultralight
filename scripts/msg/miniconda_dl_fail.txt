@@ -1,0 +1,2 @@
+[错误] Miniconda 下载失败。请检查网络后重试，或者手动下载安装：
+  https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Windows-x86_64.exe

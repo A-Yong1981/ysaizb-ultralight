@@ -1,0 +1,1997 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBS Studio 与五大直播平台接入操作图文演示教程</title>
+  <style>*,*::before,*::after{box-sizing:border-box}body,h1,h2,h3,p{margin:0}button,input,select{font:inherit}button{cursor:pointer}svg{vertical-align:middle}</style>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg-main: #f6f5f1;
+      --bg-card: #ffffff;
+      --bg-elev: #edf2f7;
+      --bg-input: #ffffff;
+      --border: #d3dce6;
+      --border-soft: #d3dce6;
+      --text-main: #28394a;
+      --text-muted: #526273;
+      --brand: #117541;
+      --brand-rgb: 7, 193, 96;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --ok: #22c55e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    /* 滚动条美化 */
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-track { background: #f6f5f1; }
+    ::-webkit-scrollbar-thumb { background: #b6c5d3; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #b6c5d3; }
+
+    /* 主容器与布局保障（防 CDN 不可用兜底） */
+    .app-wrap { max-width: 1320px; margin: 0 auto; padding: 18px 16px 56px; }
+    .panel-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 12px 32px rgba(46, 68, 85, 0.09);
+    }
+
+    /* 顶部栏 */
+    .top-header {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 18px 22px; margin-bottom: 16px;
+      background: linear-gradient(135deg, #ffffff 0%, #f4f7fb 60%, #edf2f7 100%);
+      border: 1px solid var(--border); border-radius: 16px;
+    }
+    .badge-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: rgba(236, 241, 247, 0.85); border: 1px solid var(--border); color: #28394a;
+      white-space: nowrap;
+    }
+
+    /* 第0步折叠面板 */
+    .step0-card {
+      background: var(--bg-card);
+      border: 1px solid #d3dce6;
+      border-radius: 16px;
+      margin-bottom: 20px;
+      overflow: hidden;
+      transition: border-color 0.25s ease;
+    }
+    .step0-header {
+      width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 15px 20px; cursor: pointer; background: rgba(232, 239, 246, 0.55);
+      border: none; color: inherit; text-align: left;
+    }
+    .step0-header:hover { background: rgba(36, 48, 74, 0.55); }
+    .step0-body {
+      border-top: 1px solid var(--border);
+      padding: 18px 20px;
+      display: none;
+    }
+    .step0-body.open { display: block; animation: fadeSlide 0.28s ease; }
+
+    /* 五大平台卡片网格 */
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    @media (max-width: 1024px) {
+      .platform-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    }
+    .plat-card {
+      position: relative;
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text-main);
+      transition: transform 0.2s ease, border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+      display: flex; flex-direction: column; gap: 9px;
+      min-height: 124px;
+    }
+    .plat-card:hover {
+      transform: translateY(-2px);
+      background: #edf2f7;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .plat-card.active {
+      border-color: var(--card-brand);
+      background: linear-gradient(165deg, rgba(var(--card-rgb), 0.16) 0%, #ffffff 68%);
+      box-shadow: 0 0 0 1px rgba(var(--card-rgb), 0.4), 0 10px 26px rgba(var(--card-rgb), 0.2);
+      transform: translateY(-2px);
+    }
+    .plat-card .brand-dot-bar {
+      position: absolute; top: 0; left: 14px; right: 14px; height: 3px;
+      border-radius: 0 0 4px 4px; background: var(--card-brand); opacity: 0.3;
+      transition: opacity 0.25s ease;
+    }
+    .plat-card.active .brand-dot-bar { opacity: 1; }
+
+    /* 内容区动态过渡 */
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeSlide 0.28s ease; }
+
+    /* 品牌高亮辅助 */
+    .brand-border { border-color: rgba(var(--brand-rgb), 0.55) !important; }
+    .brand-bg-soft { background: rgba(var(--brand-rgb), 0.13); border: 1px solid rgba(var(--brand-rgb), 0.4); }
+    .brand-text { color: var(--brand); }
+    .brand-btn {
+      background: var(--brand); color: #fff; border: none; border-radius: 10px;
+      padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+    .brand-btn:hover { opacity: 0.9; }
+    .brand-btn:active { transform: scale(0.98); }
+
+    .ghost-btn {
+      background: #edf2f7; color: #28394a; border: 1px solid #d3dce6;
+      border-radius: 10px; padding: 7px 13px; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, border-color 0.2s;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .ghost-btn:hover { background: #d3dce6; border-color: #b6c5d3; }
+
+    .copy-mini {
+      background: rgba(236, 241, 247, 0.9); color: #28394a; border: 1px solid #b6c5d3;
+      border-radius: 7px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+      transition: all 0.18s;
+    }
+    .copy-mini:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+    /* 模块 A 参数网格 */
+    .spec-grid {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+    }
+    @media (max-width: 960px) { .spec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 520px) { .spec-grid { grid-template-columns: 1fr; } }
+    .spec-item {
+      background: #ffffff; border: 1px solid var(--border); border-radius: 12px;
+      padding: 11px 13px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .spec-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.5px; color: #182836; word-break: break-all;
+    }
+
+    /* 模块 B SVG 流动动画 */
+    @keyframes flowDash {
+      to { stroke-dashoffset: -28; }
+    }
+    .svg-flow-line {
+      stroke-dasharray: 8 6;
+      animation: flowDash 1.1s linear infinite;
+    }
+
+    /* 模块 C 双栏图文演练区 */
+    .walkthrough-grid {
+      display: grid;
+      grid-template-columns: 390px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 1024px) {
+      .walkthrough-grid { grid-template-columns: 1fr; }
+    }
+    .step-item {
+      background: #ffffff;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 13px;
+      cursor: pointer;
+      display: flex; align-items: flex-start; gap: 11px;
+      transition: all 0.2s ease;
+    }
+    .step-item:hover { background: #edf2f7; border-color: #b6c5d3; }
+    .step-item.active {
+      border-color: var(--brand);
+      background: linear-gradient(90deg, rgba(var(--brand-rgb), 0.14) 0%, #f4f7fb 100%);
+      box-shadow: 0 0 0 1px rgba(var(--brand-rgb), 0.35);
+    }
+    .step-check {
+      width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid #475569;
+      background: #f6f5f1; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 2px; cursor: pointer; transition: all 0.18s;
+    }
+    .step-check.checked {
+      background: #22c55e; border-color: #22c55e; color: #052e16;
+    }
+
+    /* 高仿真软件模拟窗口样式 */
+    .mock-stage {
+      background: #ffffff;
+      border: 1px solid #d3dce6;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 16px 38px rgba(0, 0, 0, 0.5);
+    }
+    .mock-chrome {
+      background: #edf2f7;
+      border-bottom: 1px solid #d3dce6;
+      padding: 9px 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .win-dots { display: flex; gap: 6px; align-items: center; }
+    .win-dots span { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .mock-body {
+      padding: 16px;
+      position: relative;
+      min-height: 360px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+
+    /* 红色标注框 + 编号圆点 + 呼吸光晕 */
+    @keyframes calloutPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+      50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    }
+    .hl-box {
+      position: relative;
+      border: 2px solid #ef4444 !important;
+      background: rgba(239, 68, 68, 0.12) !important;
+      border-radius: 8px;
+      animation: calloutPulse 2s infinite;
+    }
+    .hl-num {
+      position: absolute; top: -11px; left: -11px;
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #ef4444; color: #fff; font-size: 12px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: 0 3px 10px rgba(239, 68, 68, 0.65);
+      z-index: 10;
+    }
+    .hl-tag {
+      position: absolute; top: -11px; right: 8px;
+      background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+      padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+      z-index: 10;
+    }
+
+    /* 仿真 OBS / 后台组件 */
+    .ui-window {
+      background: #f4f7fb; border: 1px solid #d3dce6; border-radius: 10px;
+      overflow: hidden; font-size: 12px;
+    }
+    .ui-sidebar {
+      background: #f4f7fb; border-right: 1px solid #d3dce6; padding: 10px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .ui-nav-item {
+      padding: 6px 9px; border-radius: 6px; color: #526273; font-size: 11.5px;
+    }
+    .ui-nav-item.active { background: #dbeafe; color: #182836; font-weight: 600; }
+    .ui-field {
+      background: #ffffff; border: 1px solid #d3dce6; border-radius: 6px;
+      padding: 6px 9px; color: #28394a; font-family: ui-monospace, monospace; font-size: 11.5px;
+    }
+    .ui-btn-obs {
+      background: #d3dce6; border: 1px solid #b6c5d3; color: #28394a;
+      padding: 6px 10px; border-radius: 6px; font-size: 11.5px; text-align: center; font-weight: 600;
+    }
+
+    /* 手机仿真框架 */
+    .phone-frame {
+      width: 248px; max-width: 100%; margin: 0 auto;
+      background: #f4f7fb; border: 3px solid #b6c5d3; border-radius: 28px;
+      padding: 10px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    }
+    .phone-notch {
+      width: 68px; height: 10px; background: #d3dce6; border-radius: 999px; margin: 0 auto 10px;
+    }
+
+    /* 模块 D 开下播双栏 */
+    .seq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 768px) { .seq-grid { grid-template-columns: 1fr; } }
+
+    /* Toast 提示 */
+    #toast-box {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #d3dce6; color: #182836; border: 1px solid #38bdf8;
+      padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+      opacity: 0; pointer-events: none; transition: all 0.25s ease; z-index: 9999;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #toast-box.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* 音量条动态效果 */
+    @keyframes vuBounce {
+      0%, 100% { width: 62%; }
+      40% { width: 88%; }
+      75% { width: 45%; }
+    }
+    .vu-bar-fill {
+      height: 7px; border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e 0%, #eab308 75%, #ef4444 100%);
+      animation: vuBounce 1.2s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-wrap">
+    <!-- ==================== 顶部总览导播栏 ==================== -->
+    <header class="top-header">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#6366f1);color:#fff;font-weight:800;font-size:15px;">OBS</span>
+          <h1 style="font-size:20px;font-weight:800;letter-spacing:0.3px;color:#182836;">
+            OBS Studio × 五大直播平台接入图文演示教程
+          </h1>
+        </div>
+        <p style="font-size:12.5px;color:#526273;">
+          专为 <strong style="color:#28394a;">RTX 2080 8GB</strong> + <code style="background:#ffffff;padding:2px 6px;border-radius:5px;color:#38bdf8;border:1px solid #d3dce6;">ai-live-hub (:28900)</code> 单平台独享直播架构定制 · 卡片式交互演练
+        </p>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+        <span class="badge-chip"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e;"></span>单路 NVENC · 显存 ≈ 4.0GB</span>
+        <span class="badge-chip" id="global-progress-pill">打卡进度：0 / 21 步</span>
+        <button class="ghost-btn" onclick="resetAllProgress()" title="清空本地勾选的打卡记录">重置打卡</button>
+      </div>
+    </header>
+
+    <!-- ==================== 第 0 步：OBS 通用底座（可折叠面板） ==================== -->
+    <section class="step0-card" id="step0-card">
+      <button class="step0-header" onclick="toggleStep0()" aria-expanded="false" id="step0-toggle-btn">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span style="background:linear-gradient(135deg,#0284c7,#2563eb);color:#fff;font-size:12px;font-weight:800;padding:4px 10px;border-radius:8px;">第 0 步 · 必做底座</span>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#182836;">OBS 通用底座配置（RTX 2080 8GB · 五平台共用一次配好）</div>
+            <div style="font-size:12px;color:#526273;margin-top:2px;">
+              ① 浏览器源挂载 <code style="color:#14578a;">/stage?layer=all</code>　② 锁定 <code style="color:#14643b;">NVIDIA NVENC H.264</code>　③ 开启 WebSocket <code style="color:#865414;">4455</code>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="copy-mini" onclick="event.stopPropagation(); copyText('http://127.0.0.1:28900/stage?layer=all', '已复制舞台浏览器源地址')">复制舞台 URL</span>
+          <span id="step0-arrow" style="font-size:12px;color:#38bdf8;font-weight:700;padding:4px 10px;background:#edf2f7;border:1px solid #d3dce6;border-radius:8px;">展开图文 ▾</span>
+        </div>
+      </button>
+
+      <div class="step0-body" id="step0-body">
+        <!-- 第0步内部三项子切换 -->
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;" id="step0-tabs">
+          <button class="ghost-btn" data-s0="0" onclick="selectStep0Tab(0)">0-1. 添加 ai-live-hub 浏览器源</button>
+          <button class="ghost-btn" data-s0="1" onclick="selectStep0Tab(1)">0-2. RTX 2080 NVENC 编码与视频</button>
+          <button class="ghost-btn" data-s0="2" onclick="selectStep0Tab(2)">0-3. 开启 WebSocket (:4455) 自动切场景</button>
+        </div>
+
+        <div class="walkthrough-grid">
+          <div id="step0-desc-pane" style="display:flex;flex-direction:column;gap:12px;"></div>
+          <div class="mock-stage">
+            <div class="mock-chrome">
+              <div class="win-dots">
+                <span style="background:#ef4444;"></span>
+                <span style="background:#f59e0b;"></span>
+                <span style="background:#22c55e;"></span>
+                <span id="step0-mock-title" style="font-size:12px;color:#28394a;margin-left:8px;font-weight:600;">OBS Studio 界面模拟</span>
+              </div>
+              <span style="font-size:11px;color:#38bdf8;">红框为必点/必改项</span>
+            </div>
+            <div class="mock-body" id="step0-mock-body"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 核心导航：五大平台卡片式切换 ==================== -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:700;color:#28394a;display:flex;align-items:center;gap:8px;">
+        <span style="width:4px;height:15px;border-radius:3px;background:var(--brand);display:inline-block;"></span>
+        点击下方平台卡片切换专属图文接入方案
+      </div>
+      <div style="font-size:11.5px;color:#64748b;">提示：支持键盘 <kbd style="background:#edf2f7;border:1px solid #b6c5d3;padding:1px 5px;border-radius:4px;color:#28394a;">←</kbd> <kbd style="background:#edf2f7;border:1px solid #b6c5d3;padding:1px 5px;border-radius:4px;color:#28394a;">→</kbd> 方向键快速切换平台</div>
+    </div>
+
+    <nav class="platform-grid" id="platform-cards-grid" aria-label="五大直播平台切换"></nav>
+
+    <!-- ==================== 主教程展示区（随平台卡片切换） ==================== -->
+    <main id="platform-main-area" class="fade-in" style="display:flex;flex-direction:column;gap:18px;">
+      <!-- 平台头部横幅 + 快手双路线切换（条件显示） -->
+      <div class="panel-box" style="padding:18px 20px;border-color:rgba(var(--brand-rgb),0.45);" id="platform-hero"></div>
+
+      <!-- 模块 A：平台参数速查栏 -->
+      <section class="panel-box" style="padding:16px 20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          <h2 style="font-size:15px;font-weight:700;color:#182836;display:flex;align-items:center;gap:8px;">
+            <span class="brand-bg-soft" style="padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--brand);">模块 A</span>
+            平台参数速查栏（点击右侧即可一键复制）
+          </h2>
+          <span style="font-size:11.5px;color:#526273;">与 <code style="color:#28394a;">platform_profiles.json</code> 字段一一对应</span>
+        </div>
+        <div class="spec-grid" id="module-a-specs"></div>
+      </section>
+
+      <!-- 模块 B：信号链路可视化示意图 -->
+      <section class="panel-box" style="padding:16px 20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          <h2 style="font-size:15px;font-weight:700;color:#182836;display:flex;align-items:center;gap:8px;">
+            <span class="brand-bg-soft" style="padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--brand);">模块 B</span>
+            端到端音视频信号链路图
+          </h2>
+          <span id="module-b-subtitle" style="font-size:11.5px;color:#526273;">单路渲染 · 零额外显存占用</span>
+        </div>
+        <div id="module-b-svg" style="width:100%;overflow-x:auto;padding:4px 0;"></div>
+      </section>
+
+      <!-- 模块 C：交互式分步图文演示 -->
+      <section class="panel-box" style="padding:18px 20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+          <h2 style="font-size:15px;font-weight:700;color:#182836;display:flex;align-items:center;gap:8px;">
+            <span class="brand-bg-soft" style="padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--brand);">模块 C</span>
+            交互式分步图文演示（点击步骤查看右侧界面红框标注，左侧可勾选打卡）
+          </h2>
+          <div style="display:flex;gap:8px;">
+            <button class="ghost-btn" onclick="stepNav(-1)">‹ 上一步</button>
+            <button class="brand-btn" style="padding:6px 12px;font-size:12px;" onclick="stepNav(1)">下一步 ›</button>
+          </div>
+        </div>
+        <div class="walkthrough-grid">
+          <div id="module-c-steps" style="display:flex;flex-direction:column;gap:10px;"></div>
+          <div class="mock-stage">
+            <div class="mock-chrome">
+              <div class="win-dots">
+                <span style="background:#ef4444;"></span>
+                <span style="background:#f59e0b;"></span>
+                <span style="background:#22c55e;"></span>
+                <span id="module-c-mock-title" style="font-size:12px;color:#28394a;margin-left:8px;font-weight:600;">操作模拟画面</span>
+              </div>
+              <span id="module-c-step-indicator" style="font-size:11px;color:var(--brand);font-weight:700;">STEP 1 / 4</span>
+            </div>
+            <div class="mock-body" id="module-c-mock-body"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 模块 D：开播 / 下播黄金操作顺序 -->
+      <section class="panel-box" style="padding:16px 20px;">
+        <h2 style="font-size:15px;font-weight:700;color:#182836;display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span class="brand-bg-soft" style="padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--brand);">模块 D</span>
+          开播 / 下播黄金操作顺序（防黑屏 · 防违规断流）
+        </h2>
+        <div class="seq-grid" id="module-d-seq"></div>
+      </section>
+
+      <!-- 模块 E：本平台专属避坑与防风控提示 -->
+      <section class="panel-box" style="padding:16px 20px;">
+        <h2 style="font-size:15px;font-weight:700;color:#182836;display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span class="brand-bg-soft" style="padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--brand);">模块 E</span>
+          本平台专属避坑清单与合规标识红线
+        </h2>
+        <div id="module-e-tips" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;"></div>
+      </section>
+
+      <!-- 底部平台切换导航条 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px 4px;">
+        <button class="ghost-btn" id="prev-plat-btn" onclick="switchPlatformOffset(-1)" style="padding:10px 16px;font-size:13px;">← 上一个平台</button>
+        <div style="font-size:12px;color:#64748b;text-align:center;">
+          全平台统一提醒：务必在 OBS 画面清晰保留 <strong style="color:#a42d3c;">AI 实时生成画面</strong> 合规角标
+        </div>
+        <button class="brand-btn" id="next-plat-btn" onclick="switchPlatformOffset(1)" style="padding:10px 16px;font-size:13px;">下一个平台 →</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- 自定义无阻塞 Toast 提示 -->
+  <div id="toast-box" role="status" aria-live="polite">
+    <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;"></span>
+    <span id="toast-msg">已复制到剪贴板</span>
+  </div>
+
+  <script>
+    /* =====================================================================
+     * 1. 通用工具函数（剪贴板复制、Toast 提示、LocalStorage 安全持久化）
+     * ===================================================================== */
+    let toastTimer = null;
+    function showToast(msg) {
+      const box = document.getElementById("toast-box");
+      document.getElementById("toast-msg").textContent = msg;
+      box.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => box.classList.remove("show"), 2300);
+    }
+
+    // 兼容 iframe 的安全复制实现（优先 execCommand）
+    function copyText(text, label) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) {
+          showToast(label || ("已复制：" + text));
+          return;
+        }
+      } catch (_) {}
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showToast(label || ("已复制：" + text))).catch(() => showToast("请手动选中复制"));
+      } else {
+        showToast("请手动选中复制：" + text);
+      }
+    }
+
+    const STORAGE_KEY = "obs_5platforms_guide_checks_v1";
+    function loadChecks() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
+      } catch (_) {
+        return {};
+      }
+    }
+    function saveChecks(obj) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+      } catch (_) {}
+    }
+
+    /* =====================================================================
+     * 2. 第 0 步（OBS 通用底座）数据与高仿真界面生成器
+     * ===================================================================== */
+    let step0Open = false;
+    let activeStep0Tab = 0;
+
+    const STEP0_DATA = [
+      {
+        title: "0-1. 添加浏览器源挂载 ai-live-hub 舞台",
+        mockTitle: "OBS Studio · 属性「浏览器 - AI舞台」",
+        points: [
+          "在 OBS 底部「来源」点 <code>+</code> 号 → 选择「浏览器（Browser）」，命名为 <code>AI数字人舞台</code>。",
+          "URL 填入 <code>http://127.0.0.1:28900/stage?layer=all</code>，宽/高按目标平台画布填写（如 <code>720×1280</code> 或 <code>1296×1080</code>）。",
+          "<strong>必须勾选「通过 OBS 控制音频」</strong>，这样数字人声音才会进入 OBS 混音器，后续才能独立调音量或开启监听。"
+        ],
+        copyVal: "http://127.0.0.1:28900/stage?layer=all",
+        copyLabel: "复制舞台 URL",
+        renderMock: () => `
+          <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid #d3dce6;padding-bottom:8px;">
+              <span style="font-weight:700;color:#28394a;">属性：AI数字人舞台（浏览器源）</span>
+              <span style="font-size:11px;color:#38bdf8;">LiveTalking + 透明板书合一</span>
+            </div>
+            <div class="hl-box" style="padding:9px 10px;">
+              <span class="hl-num">1</span><span class="hl-tag">粘贴此处</span>
+              <div style="font-size:11px;color:#526273;margin-bottom:4px;">URL</div>
+              <div class="ui-field" style="color:#14578a;">http://127.0.0.1:28900/stage?layer=all</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div>
+                <div style="font-size:11px;color:#526273;margin-bottom:4px;">宽度</div>
+                <div class="ui-field">720 <span style="color:#64748b;">(或 1296)</span></div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#526273;margin-bottom:4px;">高度</div>
+                <div class="ui-field">1280 <span style="color:#64748b;">(或 1080)</span></div>
+              </div>
+            </div>
+            <div class="hl-box" style="padding:8px 10px;display:flex;align-items:center;gap:8px;">
+              <span class="hl-num">2</span><span class="hl-tag">必勾 · 音频进混音器</span>
+              <span style="width:16px;height:16px;border-radius:4px;background:#38bdf8;color:#082f49;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;">✓</span>
+              <span style="font-weight:700;color:#182836;">通过 OBS 控制音频（Control audio via OBS）</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;color:#526273;font-size:11.5px;">
+              <span style="width:15px;height:15px;border-radius:4px;border:1px solid #475569;display:inline-block;"></span>
+              <span>不可见时关闭源（建议不勾，防止切换场景断掉 WebRTC）</span>
+            </div>
+          </div>
+        `
+      },
+      {
+        title: "0-2. 输出与视频锁定 RTX 2080 NVENC 硬件编码",
+        mockTitle: "OBS Studio · 设置 → 输出（高级模式）",
+        points: [
+          "打开 OBS 右下角「设置」→「输出」→ 输出模式改为<strong>高级</strong>。",
+          "视频编码器强选 <code>NVIDIA NVENC H.264</code>（调用 2080 独立编码芯片，绝不抢占 12400F CPU 算力）。",
+          "速率控制选 <code>CBR</code>，码率 <code>3000~4500 Kbps</code>，关键帧间隔填 <code>2</code> 秒，视频页帧率固定 <code>30 FPS</code>。"
+        ],
+        copyVal: "NVIDIA NVENC H.264 | CBR | 3500 Kbps | 关键帧 2s | 30 FPS",
+        copyLabel: "复制推荐编码参数",
+        renderMock: () => `
+          <div class="ui-window" style="display:grid;grid-template-columns:110px 1fr;min-height:270px;">
+            <div class="ui-sidebar">
+              <div class="ui-nav-item">通用</div>
+              <div class="ui-nav-item">直播</div>
+              <div class="ui-nav-item active">输出</div>
+              <div class="ui-nav-item">音频</div>
+              <div class="ui-nav-item">视频 (30 FPS)</div>
+              <div class="ui-nav-item">高级</div>
+            </div>
+            <div style="padding:12px;display:flex;flex-direction:column;gap:9px;">
+              <div class="hl-box" style="padding:7px 9px;display:flex;justify-content:space-between;align-items:center;">
+                <span class="hl-num">1</span><span class="hl-tag">2080 硬件编码</span>
+                <span style="color:#526273;">视频编码器</span>
+                <span class="ui-field" style="color:#14643b;font-weight:700;">NVIDIA NVENC H.264 ▾</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div class="hl-box" style="padding:7px 9px;">
+                  <span class="hl-num">2</span>
+                  <div style="font-size:10.5px;color:#526273;">速率控制</div>
+                  <div style="color:#182836;font-weight:700;margin-top:2px;">CBR（固定码率）</div>
+                </div>
+                <div class="hl-box" style="padding:7px 9px;">
+                  <span class="hl-num">3</span>
+                  <div style="font-size:10.5px;color:#526273;">比特率 (码率)</div>
+                  <div style="color:#865414;font-weight:700;margin-top:2px;">3500 Kbps <span style="font-size:10px;color:#526273;">(3000~4500)</span></div>
+                </div>
+              </div>
+              <div class="hl-box" style="padding:7px 9px;display:flex;justify-content:space-between;align-items:center;">
+                <span class="hl-num">4</span><span class="hl-tag">各平台硬性要求</span>
+                <span style="color:#526273;">关键帧间隔（0=自动）</span>
+                <span class="ui-field" style="width:76px;text-align:center;color:#a42d3c;font-weight:700;">2 s</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:4px 8px;background:#ffffff;border-radius:6px;color:#526273;">
+                <span>预设 / 调整</span>
+                <span style="color:#28394a;">P5 慢速(良好画质) · 低延迟 · 30 FPS</span>
+              </div>
+            </div>
+          </div>
+        `
+      },
+      {
+        title: "0-3. 开启 WebSocket (:4455) 联动 ai-live-hub 一键切播",
+        mockTitle: "OBS Studio · 顶部菜单 → 工具 → WebSocket 服务器设置",
+        points: [
+          "点击 OBS 顶部菜单 <strong>工具（Tools）→ WebSocket 服务器设置</strong>。",
+          "勾选<strong>「开启 WebSocket 服务器」</strong>，服务器端口保持默认 <code>4455</code>。",
+          "本地单机运行可取消「开启身份验证」（或将密码同步填入 <code>platform_profiles.json</code> 的 <code>obs_ws.password</code>），即可实现在 WebUI 点按钮自动切画布与场景。"
+        ],
+        copyVal: "127.0.0.1:4455",
+        copyLabel: "复制 WebSocket 地址",
+        renderMock: () => `
+          <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+            <div style="font-size:11px;color:#526273;background:#ffffff;padding:6px 10px;border-radius:6px;border:1px solid #d3dce6;">
+              文件　编辑　视图　停靠窗口　配置文件　场景集合　<strong style="color:#38bdf8;text-decoration:underline;">工具 ▾ → WebSocket 服务器设置</strong>
+            </div>
+            <div class="hl-box" style="padding:9px 11px;display:flex;align-items:center;gap:9px;">
+              <span class="hl-num">1</span><span class="hl-tag">必勾开启</span>
+              <span style="width:16px;height:16px;border-radius:4px;background:#22c55e;color:#052e16;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;">✓</span>
+              <span style="font-weight:700;color:#182836;">开启 WebSocket 服务器（Enable WebSocket server）</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="hl-box" style="padding:8px 10px;">
+                <span class="hl-num">2</span>
+                <div style="font-size:11px;color:#526273;">服务器端口</div>
+                <div style="font-family:monospace;font-size:15px;font-weight:800;color:#865414;margin-top:3px;">4455</div>
+              </div>
+              <div style="padding:8px 10px;background:#ffffff;border:1px solid #d3dce6;border-radius:8px;">
+                <div style="font-size:11px;color:#526273;">身份验证状态</div>
+                <div style="font-size:12px;color:#14643b;margin-top:4px;">本地 127.0.0.1 可免密或填同密码</div>
+              </div>
+            </div>
+            <div style="font-size:11.5px;color:#14578a;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);padding:8px 10px;border-radius:8px;">
+              联动效果：在 ai-live-hub 控制台切平台时，OBS 自动切换对应 Profile（分辨率/推流码）与 Scene（排版场景）。
+            </div>
+          </div>
+        `
+      }
+    ];
+
+    function toggleStep0() {
+      step0Open = !step0Open;
+      const body = document.getElementById("step0-body");
+      const arrow = document.getElementById("step0-arrow");
+      const btn = document.getElementById("step0-toggle-btn");
+      body.classList.toggle("open", step0Open);
+      btn.setAttribute("aria-expanded", String(step0Open));
+      arrow.textContent = step0Open ? "收起底座 ▴" : "展开图文 ▾";
+      if (step0Open) selectStep0Tab(activeStep0Tab);
+    }
+
+    function selectStep0Tab(idx) {
+      activeStep0Tab = idx;
+      const item = STEP0_DATA[idx];
+      document.querySelectorAll("#step0-tabs button").forEach((b, i) => {
+        if (i === idx) {
+          b.style.background = "#1d4ed8";
+          b.style.borderColor = "#255db1";
+          b.style.color = "#fff";
+        } else {
+          b.style.background = "#edf2f7";
+          b.style.borderColor = "#d3dce6";
+          b.style.color = "#28394a";
+        }
+      });
+      document.getElementById("step0-mock-title").textContent = item.mockTitle;
+      document.getElementById("step0-mock-body").innerHTML = item.renderMock();
+      document.getElementById("step0-desc-pane").innerHTML = `
+        <div style="font-size:15px;font-weight:700;color:#182836;">${item.title}</div>
+        <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;font-size:13px;color:#28394a;">
+          ${item.points.map((p, i) => `
+            <li style="display:flex;gap:8px;align-items:flex-start;background:#ffffff;border:1px solid #d3dce6;padding:10px 12px;border-radius:10px;">
+              <span style="min-width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;">${i + 1}</span>
+              <span>${p}</span>
+            </li>
+          `).join("")}
+        </ul>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          <button class="brand-btn" style="background:#2563eb;" onclick="copyText('${item.copyVal.replace(/'/g, "\\'")}', '已复制：${item.copyLabel}')">${item.copyLabel}</button>
+        </div>
+      `;
+    }
+
+    /* =====================================================================
+     * 3. 五大平台完整配置与高仿真图文数据
+     * ===================================================================== */
+    const PLATFORMS = [
+      /* -------------------- 1. 微信视频号 -------------------- */
+      {
+        id: "wechat",
+        name: "微信视频号",
+        shortName: "视频号",
+        brand: "#117541",
+        brandRgb: "7, 193, 96",
+        accessTag: "RTMP 直推",
+        ratioTag: "9:16 竖屏",
+        tagline: "官方网页后台直接发 RTMP 推流码，稳定性极高，最适合中老年实用与防骗科普专场。",
+        iconSvg: `<svg viewBox="0 0 32 32" width="26" height="26" fill="none"><rect width="32" height="32" rx="8" fill="#117541" fill-opacity="0.18"/><path d="M16 6.5C11 6.5 7 10.1 7 14.6c0 2.5 1.3 4.8 3.4 6.3L9.5 25l4.1-2.1c.8.2 1.6.3 2.4.3 5 0 9-3.6 9-8.1S21 6.5 16 6.5z" stroke="#117541" stroke-width="2"/><polygon points="14,12 20,15 14,18" fill="#117541"/></svg>`,
+        specs: [
+          { label: "推荐 OBS Profile", value: "WeChat_720p_9x16" },
+          { label: "推荐 OBS Scene", value: "视频号竖屏" },
+          { label: "画质 / 码率 / 关键帧", value: "720×1280 · 30FPS · 3000Kbps · 2s" },
+          { label: "官方后台入口", value: "https://channels.weixin.qq.com" }
+        ],
+        flow: {
+          subtitle: "纯 RTMP 直推 · 无需开微信桌面伴侣 · 省内存最稳",
+          nodes: [
+            { title: "ai-live-hub", sub: "LiveTalking :28900" },
+            { title: "OBS Studio", sub: "9:16 NVENC H.264" },
+            { title: "RTMP 推流", sub: "服务器 + 每次新密钥" },
+            { title: "视频号助手", sub: "channels.weixin.qq.com" },
+            { title: "微信观众端", sub: "含 AI 实时生成角标" }
+          ]
+        },
+        steps: [
+          {
+            id: "wx_1",
+            title: "登录视频号助手并确认认证状态",
+            desc: "电脑浏览器访问 channels.weixin.qq.com 扫码登录，先确认账号已完成个人/企业视频号认证，再进入左侧「直播管理」点击「创建直播」。",
+            mockTitle: "浏览器 · 微信视频号助手 (channels.weixin.qq.com)",
+            renderMock: () => `
+              <div class="ui-window" style="display:grid;grid-template-columns:120px 1fr;min-height:270px;">
+                <div class="ui-sidebar">
+                  <div style="font-weight:800;color:#117541;padding:4px 6px 10px;">视频号助手</div>
+                  <div class="ui-nav-item">首页</div>
+                  <div class="ui-nav-item">动态管理</div>
+                  <div class="ui-nav-item active" style="background:rgba(7,193,96,0.2);color:#14643b;">直播管理</div>
+                  <div class="ui-nav-item">数据中心</div>
+                </div>
+                <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:700;font-size:14px;">直播管理</span>
+                    <span style="font-size:11px;padding:3px 8px;border-radius:999px;background:rgba(7,193,96,0.18);color:#14643b;border:1px solid #117541;">✓ 已完成视频号认证</span>
+                  </div>
+                  <div style="background:#ffffff;border:1px solid #d3dce6;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                    <div>
+                      <div style="font-weight:700;color:#28394a;">使用推流软件（OBS）开播</div>
+                      <div style="font-size:11px;color:#526273;margin-top:3px;">无需安装视频号直播工具，直接复制 RTMP 参数推流</div>
+                    </div>
+                    <div class="hl-box" style="padding:8px 14px;background:#117541 !important;color:#fff;font-weight:700;border-radius:8px;white-space:nowrap;">
+                      <span class="hl-num">1</span>
+                      创建直播
+                    </div>
+                  </div>
+                  <div style="font-size:11px;color:#865414;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);padding:8px 10px;border-radius:8px;">
+                    前提检查：未认证的个人视频号可能看不到「获取推流地址」入口，请先在手机微信完成实名/兴趣认证。
+                  </div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "wx_2",
+            title: "复制本次直播的「推流地址」和「推流密钥」",
+            desc: "填写直播主题、选择竖屏封面与「科教/科普」类目，在推流信息区分别复制「推流地址（服务器）」与「推流密钥」。注意：每次新建直播密钥都会刷新！",
+            mockTitle: "视频号助手 · 创建直播 → 获取 RTMP 推流信息",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-weight:700;color:#28394a;">推流配置信息（单次有效）</span>
+                  <span style="font-size:11px;color:#a42d3c;font-weight:700;">⚠ 每次开播密钥都会重新生成</span>
+                </div>
+                <div class="hl-box" style="padding:9px 10px;">
+                  <span class="hl-num">1</span><span class="hl-tag">复制到 OBS 服务器</span>
+                  <div style="font-size:11px;color:#526273;margin-bottom:4px;">推流地址（服务器 Server）</div>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <div class="ui-field" style="flex:1;color:#14643b;">rtmp://push.wx.qq.com/live/</div>
+                    <span class="ui-btn-obs">复制</span>
+                  </div>
+                </div>
+                <div class="hl-box" style="padding:9px 10px;">
+                  <span class="hl-num">2</span><span class="hl-tag">复制到 OBS 串流密钥</span>
+                  <div style="font-size:11px;color:#526273;margin-bottom:4px;">推流密钥（Stream Key）</div>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <div class="ui-field" style="flex:1;color:#865414;">wx_8f92a3c1?txSecret=9a81b2c&amp;txTime=692A</div>
+                    <span class="ui-btn-obs">复制</span>
+                  </div>
+                </div>
+                <div style="font-size:11px;color:#526273;">右侧画面预览区此刻显示「等待推流中...」，先不要点开播按钮，立刻切到 OBS。</div>
+              </div>
+            `
+          },
+          {
+            id: "wx_3",
+            title: "OBS 填入服务器与密钥并点击「开始推流」",
+            desc: "OBS 设置 → 直播 → 服务选「自定义」，分别粘贴服务器与串流密钥。确认画布为 720×1280 竖屏后，点右下角「开始推流」，直到状态栏亮起绿灯。",
+            mockTitle: "OBS Studio · 设置 → 直播 + 状态栏推流绿灯",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                <div style="display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center;">
+                  <span style="color:#526273;">服务</span>
+                  <div class="ui-field">自定义...（Custom）▾</div>
+                  <span style="color:#526273;">服务器</span>
+                  <div class="hl-box" style="padding:5px 8px;"><span class="hl-num">1</span><span style="font-family:monospace;color:#14643b;">rtmp://push.wx.qq.com/live/</span></div>
+                  <span style="color:#526273;">串流密钥</span>
+                  <div class="hl-box" style="padding:5px 8px;"><span class="hl-num">2</span><span style="font-family:monospace;color:#865414;">••••••••••••••••••••••••••••</span></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:10px;background:#ffffff;border:1px solid #d3dce6;border-radius:8px;flex-wrap:wrap;gap:10px;">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;">
+                    <span style="width:11px;height:11px;border-radius:3px;background:#22c55e;box-shadow:0 0 8px #22c55e;display:inline-block;"></span>
+                    <span style="color:#14643b;font-weight:700;">LIVE 00:00:12</span>
+                    <span style="color:#526273;">丢帧 0.0% · 3024 kb/s</span>
+                  </div>
+                  <div class="hl-box" style="padding:6px 14px;background:#1d4ed8 !important;color:#fff;font-weight:700;">
+                    <span class="hl-num">3</span>
+                    开始推流 → 变绿灯
+                  </div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "wx_4",
+            title: "回后台确认画面声音无误后点击「开始直播」",
+            desc: "返回视频号助手网页，等待 3~5 秒看到预览窗口清晰出现数字人与「AI 实时生成画面」角标，确认音量条有跳动后，点击绿色「开始直播」正式对外开播。",
+            mockTitle: "视频号助手 · 画面预览确认 → 正式开播",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:center;">
+                <div style="aspect-ratio:9/16;background:linear-gradient(180deg,#edf2f7,#f4f7fb);border:1.5px solid #117541;border-radius:10px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;position:relative;">
+                  <div style="font-size:9px;background:rgba(239,68,68,0.85);color:#fff;padding:2px 6px;border-radius:999px;text-align:center;font-weight:700;">AI 实时生成画面</div>
+                  <div style="text-align:center;">
+                    <div style="width:46px;height:46px;border-radius:50%;background:#dbeafe;margin:0 auto 6px;border:2px solid #38bdf8;display:flex;align-items:center;justify-content:center;font-size:18px;">👩‍🏫</div>
+                    <div style="font-size:10px;color:#14643b;font-weight:700;">● 画面已接入</div>
+                  </div>
+                  <div style="background:rgba(0,0,0,0.65);border-radius:5px;padding:4px;font-size:9px;color:#28394a;text-align:center;">实时板书与字幕正常</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <div style="font-size:13px;font-weight:700;color:#14643b;">✓ 检测到 OBS 稳定推流信号</div>
+                  <div style="font-size:11.5px;color:#28394a;">画面分辨率：720×1280（9:16 竖屏）<br/>音频状态：正常（有波形输入）</div>
+                  <div class="hl-box" style="padding:10px 16px;background:#117541 !important;color:#fff;font-weight:800;text-align:center;font-size:14px;">
+                    <span class="hl-num">1</span><span class="hl-tag">看到画面再点</span>
+                    开始直播
+                  </div>
+                  <div style="font-size:11px;color:#526273;">同步提醒：下播时务必先在这里点「结束直播」，再去 OBS 点停止推流！</div>
+                </div>
+              </div>
+            `
+          }
+        ],
+        startOrder: [
+          "启动 LiveTalking (:8010) 与 ai-live-hub (:28900)，在 WebUI 切至「视频号」预设",
+          "打开 OBS 确认舞台浏览器源出画、声音正常且「AI 实时生成画面」角标清晰",
+          "进入 channels.weixin.qq.com 创建直播，复制最新 RTMP 服务器与推流密钥填入 OBS",
+          "先点 OBS「开始推流」看到状态栏绿灯 → 回到后台确认预览出画 → 最后点后台「开始直播」"
+        ],
+        stopOrder: [
+          "第一步：在视频号助手网页后台点击「结束直播」并二次确认关播",
+          "第二步：等待后台弹出本场直播数据总结页，确认流已彻底关闭",
+          "第三步：回到 OBS 点击「停止推流」，最后在 WebUI 停止弹幕采集进程"
+        ],
+        stopWarn: "严禁先停 OBS 再关后台！若后台仍在直播而 OBS 断流导致长时间黑屏，可能触发风控甚至被收回推流权限。",
+        tips: [
+          { level: "warn", title: "必须先完成视频号认证", body: "未认证账号通常无 RTMP 推流权限，需先在手机微信视频号完成认证后再登录 channels.weixin.qq.com 取码。" },
+          { level: "danger", title: "每次新建直播密钥都会刷新", body: "切勿直接沿用昨天的旧串流密钥推流！每次开播前必须在后台重新复制新的推流密钥粘贴进 OBS。" },
+          { level: "ok", title: "合规角标与防骗内容红线", body: "视频号对中老年群体保护极严，务必保留「AI 实时生成画面」标识，严禁出现诱导加微信、导流外部链接或推销高价课话术。" }
+        ]
+      },
+
+      /* -------------------- 2. 抖音 -------------------- */
+      {
+        id: "douyin",
+        name: "抖音",
+        shortName: "抖音",
+        brand: "#c12841",
+        brandRgb: "254, 44, 85",
+        accessTag: "虚拟摄像头",
+        ratioTag: "1296×1080 / 竖屏",
+        tagline: "普通账号无 RTMP 推流码，走「OBS 虚拟摄像机 + 音频监听输出 → 抖音直播伴侣」零门槛最稳妥。",
+        iconSvg: `<svg viewBox="0 0 32 32" width="26" height="26" fill="none"><rect width="32" height="32" rx="8" fill="#c12841" fill-opacity="0.18"/><path d="M18.5 7v11.2a4.3 4.3 0 1 1-3-4.1V17a1.8 1.8 0 1 0 1.2 1.7V7h2.3c.3 2 1.8 3.6 3.8 3.9v2.3a6.2 6.2 0 0 1-4.3-1.7z" fill="#c12841"/><path d="M17.8 7.5v11.2a4.3 4.3 0 1 1-3-4.1" stroke="#25f4ee" stroke-width="1.2" opacity="0.7"/></svg>`,
+        specs: [
+          { label: "推荐 OBS Profile", value: "Douyin_1296x1080" },
+          { label: "推荐 OBS Scene", value: "抖音横屏小窗" },
+          { label: "画布与帧率", value: "1296×1080 (或 720×1280) · 30FPS" },
+          { label: "官方伴侣下载", value: "https://streamingtool.douyin.com" }
+        ],
+        flow: {
+          subtitle: "虚拟摄像头传画面 + 监听输出传声音 · 解决 99% 无声难题",
+          nodes: [
+            { title: "ai-live-hub", sub: "LiveTalking :28900" },
+            { title: "OBS Studio", sub: "1296×1080 舞台源" },
+            { title: "虚拟镜头+监听", sub: "VirtualCam + 扬声器" },
+            { title: "抖音直播伴侣", sub: "摄像头+桌面音频" },
+            { title: "抖音观众端", sub: "含 AI 实时生成角标" }
+          ]
+        },
+        steps: [
+          {
+            id: "dy_1",
+            title: "OBS 设定画布并点击「启动虚拟摄像机」",
+            desc: "在 OBS 设置 → 视频中将画布设为 1296×1080（横屏小窗带板书最清晰）或 720×1280（竖屏），确认舞台画面铺满后，点击主界面右下角「启动虚拟摄像机」。",
+            mockTitle: "OBS Studio · 右下角控制面板 → 启动虚拟摄像机",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:grid;grid-template-columns:1fr 165px;gap:14px;align-items:stretch;">
+                <div style="background:#ffffff;border:1px solid #d3dce6;border-radius:8px;padding:10px;display:flex;flex-direction:column;justify-content:space-between;">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;">
+                    <span style="color:#38bdf8;">画布：1296 × 1080 (1.2:1)</span>
+                    <span style="background:rgba(239,68,68,0.85);color:#fff;padding:1px 6px;border-radius:999px;">AI 实时生成画面</span>
+                  </div>
+                  <div style="text-align:center;padding:24px 0;">
+                    <div style="font-size:26px;">👩‍🏫</div>
+                    <div style="font-size:11.5px;color:#28394a;margin-top:4px;">ai-live-hub 舞台画面就绪</div>
+                  </div>
+                  <div style="font-size:10px;color:#14643b;text-align:center;">注意：不需要点「开始推流」，只启虚拟摄像机！</div>
+                </div>
+                <div style="background:#f4f7fb;border:1px solid #d3dce6;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:7px;">
+                  <div style="font-size:11px;color:#526273;font-weight:700;">控件（Controls）</div>
+                  <div class="ui-btn-obs" style="opacity:0.45;">开始推流（不点）</div>
+                  <div class="ui-btn-obs" style="opacity:0.45;">开始录制</div>
+                  <div class="hl-box" style="padding:7px 8px;background:rgba(254,44,85,0.22) !important;color:#182836;font-weight:800;text-align:center;">
+                    <span class="hl-num">1</span><span class="hl-tag">点这里</span>
+                    启动虚拟摄像机
+                  </div>
+                  <div class="ui-btn-obs">设置</div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "dy_2",
+            title: "核心破局：OBS 浏览器源开启「监听并输出」解决无声",
+            desc: "虚拟摄像头本身只传视频不传音频！在 OBS 混音器点「AI数字人舞台」右侧齿轮 →「高级音频属性」→ 将音频监听下拉框改为「监听并输出」，声音就会送进系统扬声器。",
+            mockTitle: "OBS Studio · 高级音频属性（解决虚拟摄像头没声音关键！）",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #d3dce6;padding-bottom:8px;">
+                  <span style="font-weight:700;color:#182836;">高级音频属性（Advanced Audio Properties）</span>
+                  <span style="font-size:11px;color:#c12841;font-weight:700;">★ 99% 新手没声音都在这一步</span>
+                </div>
+                <div style="display:grid;grid-template-columns:130px 70px 1fr;gap:8px;font-size:11px;color:#526273;padding:0 6px;">
+                  <span>音频源名称</span><span>音量</span><span>音频监听（Audio Monitoring）</span>
+                </div>
+                <div style="display:grid;grid-template-columns:130px 70px 1fr;gap:8px;align-items:center;background:#ffffff;padding:10px 8px;border-radius:8px;border:1px solid #d3dce6;">
+                  <span style="font-weight:700;color:#14578a;">AI数字人舞台</span>
+                  <span style="color:#14643b;">100%</span>
+                  <div class="hl-box" style="padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
+                    <span class="hl-num">1</span><span class="hl-tag">必须选此项</span>
+                    <span style="font-weight:800;color:#865414;">监听并输出（Monitor and Output）</span>
+                    <span>▾</span>
+                  </div>
+                </div>
+                <div style="font-size:11.5px;color:#28394a;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);padding:8px 10px;border-radius:8px;">
+                  原理：开启后，数字人说话会从 Windows 扬声器（或虚拟声卡）播放出来，抖音直播伴侣通过采集「扬声器」即可完美收录无杂音内录人声。
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "dy_3",
+            title: "抖音直播伴侣添加「摄像头」选择 OBS Virtual Camera",
+            desc: "登录抖音直播伴侣 → 左侧点「添加素材」→ 选「摄像头」→ 在摄像头设备列表中选中 OBS Virtual Camera，把画面拉满画布并关闭美颜/滤镜防口型变形。",
+            mockTitle: "抖音直播伴侣 · 添加素材 → 摄像头设备选择",
+            renderMock: () => `
+              <div class="ui-window" style="display:grid;grid-template-columns:115px 1fr;min-height:265px;">
+                <div class="ui-sidebar">
+                  <div style="font-weight:800;color:#c12841;padding:4px 4px 10px;">抖音直播伴侣</div>
+                  <div class="ui-nav-item active" style="background:rgba(254,44,85,0.2);color:#a42d3c;">+ 添加素材</div>
+                  <div class="ui-nav-item">画面管理</div>
+                  <div class="ui-nav-item">弹幕互动</div>
+                </div>
+                <div style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                  <div style="font-weight:700;color:#182836;">添加摄像头来源</div>
+                  <div class="hl-box" style="padding:9px 10px;">
+                    <span class="hl-num">1</span><span class="hl-tag">选 OBS 虚拟镜头</span>
+                    <div style="font-size:11px;color:#526273;margin-bottom:4px;">选择摄像头设备</div>
+                    <div class="ui-field" style="color:#a42d3c;font-weight:700;">OBS Virtual Camera ▾</div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div class="ui-field">画面比例：与 OBS 同步</div>
+                    <div class="ui-field" style="color:#14643b;">镜像 / 美颜：全部关闭</div>
+                  </div>
+                  <div style="font-size:11px;color:#526273;">添加完成后右键画面 →「铺满屏幕」，核对顶部「AI 实时生成画面」角标不被遮挡。</div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "dy_4",
+            title: "伴侣开启「扬声器」采集并静音麦克风，验证音画开播",
+            desc: "在抖音直播伴侣底栏声音控制区：打开「扬声器（桌面声音）」并调至 80%~100%，关闭「麦克风」避免环境杂音与回声。在 ai-live-hub 发测试文案看到音量条跳动后点「开始直播」。",
+            mockTitle: "抖音直播伴侣 · 底部音频与开播控制栏",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <div style="font-size:12px;color:#28394a;">在 ai-live-hub 控制台发一句测试口播，观察伴侣底栏声音波形：</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <div class="hl-box" style="padding:10px;">
+                    <span class="hl-num">1</span><span class="hl-tag">必须开启</span>
+                    <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px;">
+                      <span style="font-weight:700;color:#14643b;">🔊 扬声器（桌面声音）</span>
+                      <span>90%</span>
+                    </div>
+                    <div style="background:#ffffff;height:7px;border-radius:999px;overflow:hidden;"><div class="vu-bar-fill"></div></div>
+                  </div>
+                  <div style="padding:10px;background:#ffffff;border:1px solid #b6c5d3;border-radius:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px;color:#526273;">
+                      <span>🎙️ 麦克风</span>
+                      <span style="color:#a42d3c;">已静音（防回声）</span>
+                    </div>
+                    <div style="background:#d3dce6;height:7px;border-radius:999px;"></div>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding-top:6px;">
+                  <span style="font-size:11px;color:#526273;">伴侣编码设置同样选 NVENC，码率 3500Kbps</span>
+                  <div class="hl-box" style="padding:8px 20px;background:#c12841 !important;color:#fff;font-weight:800;font-size:13.5px;">
+                    <span class="hl-num">2</span>
+                    开始直播
+                  </div>
+                </div>
+              </div>
+            `
+          }
+        ],
+        startOrder: [
+          "启动 LiveTalking + ai-live-hub，WebUI 切至「抖音」预设",
+          "打开 OBS → 确认浏览器源「监听并输出」已开 → 点右下角「启动虚拟摄像机」",
+          "打开抖音直播伴侣 → 确认已选 OBS Virtual Camera 且「扬声器」音量条随口播跳动",
+          "点伴侣「开始直播」→ 在 WebUI 填入直播间号启动抖音弹幕采集（或连 douyinLive :1089）"
+        ],
+        stopOrder: [
+          "第一步：在抖音直播伴侣点击「结束直播」并确认关播",
+          "第二步：在 ai-live-hub 控制台点击「停采集」释放弹幕监听进程",
+          "第三步：回到 OBS 点击「停止虚拟摄像机」"
+        ],
+        stopWarn: "千万不要把微信提示音、网页视频声音外放进电脑！因为伴侣采集的是「扬声器」，开播期间建议在 Windows 音量合成器里仅保留 OBS 发声，其他无关软件静音。",
+        tips: [
+          { level: "danger", title: "解决虚拟摄像头无声的唯一关键", body: "OBS 高级音频属性必须设「监听并输出」，且抖音直播伴侣底栏「扬声器」必须打开；若自己不想被外放声音吵到，可安装免费的 VB-Cable 虚拟声卡并在 OBS 监听设备中选它。" },
+          { level: "warn", title: "普通号无需花钱买 RTMP 推流码", body: "抖音官方只对高粉/机构账号开放直推码，个人号用「虚拟摄像机 + 官方直播伴侣」最合规且不容易触发第三方推流风控。" },
+          { level: "ok", title: "横屏小窗 1296×1080 信息密度最高", body: "相比传统竖屏，1296×1080 在知识科普直播间里能把左右板书和数字人口型同时拍清楚，记得始终保留「AI 实时生成画面」标识。" }
+        ]
+      },
+
+      /* -------------------- 3. 小红书 -------------------- */
+      {
+        id: "xhs",
+        name: "小红书",
+        shortName: "小红书",
+        brand: "#c12841",
+        brandRgb: "255, 36, 66",
+        accessTag: "验证码取码 RTMP",
+        ratioTag: "9:16 竖屏",
+        tagline: "零粉丝门槛！手机拿 6 位验证码 → 网页换取串流密钥 → OBS 直推，记得关延迟、开自动重连。",
+        iconSvg: `<svg viewBox="0 0 32 32" width="26" height="26" fill="none"><rect width="32" height="32" rx="8" fill="#c12841" fill-opacity="0.18"/><rect x="6.5" y="8" width="19" height="16" rx="4" stroke="#c12841" stroke-width="2"/><text x="16" y="19.5" text-anchor="middle" fill="#c12841" font-size="9" font-weight="800" font-family="sans-serif">红书</text></svg>`,
+        specs: [
+          { label: "推荐 OBS Profile", value: "XHS_720p_9x16" },
+          { label: "固定服务器地址", value: "rtmp://live-push.xhscdn.com/live" },
+          { label: "画质 / 码率 / 关键帧", value: "720×1280 · 30FPS · 3000Kbps · 1~2s" },
+          { label: "网页取码入口", value: "https://www.xiaohongshu.com/zhibo/obs" }
+        ],
+        flow: {
+          subtitle: "手机 6 位码鉴权 → 网页拿密钥 → OBS 直推 xhscdn 节点",
+          nodes: [
+            { title: "ai-live-hub", sub: "LiveTalking :28900" },
+            { title: "OBS Studio", sub: "关键帧1-2s·关延迟" },
+            { title: "RTMP 直推", sub: "live-push.xhscdn.com" },
+            { title: "手机小红书App", sub: "6位码取流+点开播" },
+            { title: "小红书观众端", sub: "含 AI 实时生成角标" }
+          ]
+        },
+        steps: [
+          {
+            id: "xhs_1",
+            title: "手机小红书 App 切「电脑」拿 6 位验证码",
+            desc: "打开手机小红书 App → 点底部红色「+」→ 底部滑到「直播」→ 顶部模式切换到「电脑」，屏幕即刻生成 6 位数字验证码（12 小时内有效）。",
+            mockTitle: "手机端 · 小红书 App → 直播 → 电脑推流模式",
+            renderMock: () => `
+              <div class="phone-frame">
+                <div class="phone-notch"></div>
+                <div style="display:flex;justify-content:center;gap:14px;font-size:11px;color:#526273;margin-bottom:12px;">
+                  <span>视频</span>
+                  <span class="hl-box" style="padding:2px 8px;color:#182836;font-weight:800;"><span class="hl-num">1</span>电脑</span>
+                  <span>语音</span>
+                </div>
+                <div style="background:#edf2f7;border:1px solid #d3dce6;border-radius:12px;padding:12px;text-align:center;">
+                  <div style="font-size:11px;color:#526273;">电脑推流 6 位验证码</div>
+                  <div class="hl-box" style="margin:10px 0;padding:8px;font-family:monospace;font-size:22px;font-weight:900;letter-spacing:5px;color:#a42d3c;">
+                    <span class="hl-num">2</span>
+                    582 914
+                  </div>
+                  <div style="font-size:10px;color:#865414;">有效期 12 小时 · 切勿外泄</div>
+                </div>
+                <div style="margin-top:12px;font-size:10.5px;color:#526273;text-align:center;">先别退出此页，去电脑网页换密钥</div>
+              </div>
+            `
+          },
+          {
+            id: "xhs_2",
+            title: "电脑打开 xiaohongshu.com/zhibo/obs 换取串流密钥",
+            desc: "电脑浏览器访问 xiaohongshu.com/zhibo/obs，输入刚才手机上的 6 位验证码，点击获取即可看到本次专属「串流密钥」，点复制按钮。",
+            mockTitle: "电脑浏览器 · 小红书 OBS 推流取码页",
+            renderMock: () => `
+              <div class="ui-window" style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+                <div style="font-size:11.5px;color:#526273;background:#ffffff;padding:6px 10px;border-radius:6px;">
+                  🔒 https://www.xiaohongshu.com/zhibo/obs
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <div class="hl-box" style="flex:1;padding:7px 10px;">
+                    <span class="hl-num">1</span>
+                    <span style="font-family:monospace;font-size:14px;font-weight:700;color:#182836;letter-spacing:3px;">582914</span>
+                  </div>
+                  <span style="background:#c12841;color:#fff;padding:8px 14px;border-radius:7px;font-weight:700;">验证取码</span>
+                </div>
+                <div class="hl-box" style="padding:10px;">
+                  <span class="hl-num">2</span><span class="hl-tag">复制串流密钥</span>
+                  <div style="font-size:11px;color:#526273;margin-bottom:4px;">串流密钥（Stream Key）</div>
+                  <div class="ui-field" style="color:#865414;">56982104_xhs_live?wsSecret=7f81e2c&amp;wsTime=692A</div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "xhs_3",
+            title: "OBS 填入小红书固定服务器与串流密钥",
+            desc: "OBS 设置 → 直播 → 服务选「自定义」，服务器固定填入 rtmp://live-push.xhscdn.com/live，串流密钥粘贴上一步拿到的密钥。",
+            mockTitle: "OBS Studio · 设置 → 直播（小红书 RTMP 参数）",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                <div style="display:grid;grid-template-columns:80px 1fr;gap:10px;align-items:center;">
+                  <span style="color:#526273;">服务</span>
+                  <div class="ui-field">自定义... ▾</div>
+                  <span style="color:#526273;">服务器</span>
+                  <div class="hl-box" style="padding:6px 9px;">
+                    <span class="hl-num">1</span><span class="hl-tag">固定地址</span>
+                    <span style="font-family:monospace;color:#a42d3c;font-weight:700;">rtmp://live-push.xhscdn.com/live</span>
+                  </div>
+                  <span style="color:#526273;">串流密钥</span>
+                  <div class="hl-box" style="padding:6px 9px;">
+                    <span class="hl-num">2</span>
+                    <span style="font-family:monospace;color:#865414;">56982104_xhs_live?wsSecret=••••••</span>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;">
+                  <button class="copy-mini" onclick="copyText('rtmp://live-push.xhscdn.com/live', '已复制小红书固定服务器地址')">一键复制小红书服务器地址</button>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "xhs_4",
+            title: "小红书防断流必改项：关推流延迟 + 开自动重连 + 关键帧 1~2s",
+            desc: "在 OBS「设置 → 输出」确认关键帧间隔为 1 或 2 秒；再切到「设置 → 高级」，务必取消勾选「启用推流延迟」，并勾选「启用自动重新连接」。",
+            mockTitle: "OBS Studio · 设置 → 高级（防延迟与自动重连）",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                <div style="font-weight:700;color:#28394a;border-bottom:1px solid #d3dce6;padding-bottom:6px;">高级设置（Advanced）</div>
+                <div class="hl-box" style="padding:9px 10px;display:flex;justify-content:space-between;align-items:center;">
+                  <span class="hl-num">1</span><span class="hl-tag">必须取消勾选</span>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="width:16px;height:16px;border-radius:4px;border:2px solid #ef4444;display:inline-block;"></span>
+                    <span style="color:#a42d3c;font-weight:700;">推流延迟（Stream Delay）→ 保持关闭</span>
+                  </div>
+                </div>
+                <div class="hl-box" style="padding:9px 10px;display:flex;justify-content:space-between;align-items:center;">
+                  <span class="hl-num">2</span><span class="hl-tag">必须勾选</span>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="width:16px;height:16px;border-radius:4px;background:#22c55e;color:#052e16;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;">✓</span>
+                    <span style="color:#14643b;font-weight:700;">自动重新连接（重试延迟 2 秒 · 最大重试 20 次）</span>
+                  </div>
+                </div>
+                <div style="font-size:11.5px;color:#28394a;background:#ffffff;padding:8px 10px;border-radius:6px;">
+                  输出页关键帧间隔：<strong style="color:#865414;">1 秒 或 2 秒</strong>（切勿留 0 自动，否则小红书端首帧加载慢）。
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "xhs_5",
+            title: "先点 OBS「开始推流」，再回手机点「进入直播间」",
+            desc: "先在电脑 OBS 点「开始推流」看到绿灯，等待 3 秒，再回到手机小红书 App（此刻手机端会检测到画面信号），点击红色「进入直播间」即可正式开播。",
+            mockTitle: "双端联动 · 先 OBS 推流绿灯 → 再手机端开播",
+            renderMock: () => `
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center;">
+                <div class="ui-window" style="padding:12px;text-align:center;">
+                  <div style="font-size:11px;color:#526273;margin-bottom:8px;">Step A · 电脑 OBS</div>
+                  <div class="hl-box" style="padding:8px;background:#1d4ed8 !important;color:#fff;font-weight:700;margin-bottom:8px;">
+                    <span class="hl-num">1</span>开始推流
+                  </div>
+                  <div style="font-size:11px;color:#14643b;">● 绿灯 · 3050 kb/s</div>
+                </div>
+                <div class="ui-window" style="padding:12px;text-align:center;border-color:#c12841;">
+                  <div style="font-size:11px;color:#526273;margin-bottom:8px;">Step B · 手机小红书</div>
+                  <div style="font-size:11px;color:#14643b;margin-bottom:8px;">✓ 已收到电脑推流画面</div>
+                  <div class="hl-box" style="padding:8px;background:#c12841 !important;color:#fff;font-weight:800;">
+                    <span class="hl-num">2</span>进入直播间
+                  </div>
+                </div>
+              </div>
+            `
+          }
+        ],
+        startOrder: [
+          "手机小红书 App 切「电脑」拿 6 位验证码 → 电脑打开 xiaohongshu.com/zhibo/obs 换取串流密钥",
+          "OBS 填入服务器 rtmp://live-push.xhscdn.com/live 与密钥，确认关键帧 1~2s、关延迟、开自动重连",
+          "先点电脑 OBS「开始推流」看到绿灯正常推流",
+          "最后在手机小红书 App 看到信号接入提示，点击「进入直播间」正式开播"
+        ],
+        stopOrder: [
+          "第一步：在手机小红书直播间右上角点击「关闭 / 结束直播」",
+          "第二步：回到电脑 OBS 点击「停止推流」"
+        ],
+        stopWarn: "小红书 6 位验证码有效期为 12 小时，次日开播或超时后需重新在手机端生成新验证码换取密钥。",
+        tips: [
+          { level: "ok", title: "零粉丝门槛 · 科普图文转化友好", body: "小红书电脑推流无需 1000 粉即可开通，非常适合家庭 AI 启蒙与中老年防骗这类强干货科普内容。" },
+          { level: "warn", title: "关闭延迟 + 开启自动重连防黑屏", body: "开启推流延迟会让弹幕答疑滞后十几秒，影响互动率；开启自动重连可在网络波动时自动续流。" },
+          { level: "danger", title: "严禁导流站外与保留 AI 角标", body: "画面保留「AI 实时生成画面」角标，口播与板书绝不提微信号、其他平台名或任何收费课程。" }
+        ]
+      },
+
+      /* -------------------- 4. 快手（支持路线 A / 路线 B 内部切换） -------------------- */
+      {
+        id: "kuaishou",
+        name: "快手",
+        shortName: "快手",
+        brand: "#aa4312",
+        brandRgb: "255, 80, 0",
+        accessTag: "双路线可选",
+        ratioTag: "9:16 竖屏",
+        tagline: "内置双路线切换：新手零门槛走「路线 A 虚拟摄像头进伴侣」，进阶省内存走「路线 B 开放平台 RTMP 直推」。",
+        iconSvg: `<svg viewBox="0 0 32 32" width="26" height="26" fill="none"><rect width="32" height="32" rx="8" fill="#aa4312" fill-opacity="0.18"/><circle cx="11.5" cy="11.5" r="3" stroke="#aa4312" stroke-width="2"/><circle cx="18.5" cy="11.5" r="3" stroke="#aa4312" stroke-width="2"/><rect x="8" y="15.5" width="13" height="9" rx="2.5" stroke="#aa4312" stroke-width="2"/><polygon points="21,18 25.5,16 25.5,24 21,22" fill="#aa4312"/></svg>`,
+        hasRoutes: true,
+        routes: {
+          A: {
+            label: "路线 A：OBS 虚拟摄像头 → 快手直播伴侣（零门槛推荐）",
+            specs: [
+              { label: "推荐 OBS Profile", value: "Kuaishou_720p_9x16" },
+              { label: "推荐 OBS Scene", value: "快手竖屏" },
+              { label: "画质与音频通道", value: "720×1280 · 30FPS · 监听并输出" },
+              { label: "快手直播伴侣下载", value: "https://live.kuaishou.com/live-partner" }
+            ],
+            flow: {
+              subtitle: "路线 A（零门槛）：OBS 虚拟镜头 + 桌面音频 → 快手直播伴侣",
+              nodes: [
+                { title: "ai-live-hub", sub: "LiveTalking :28900" },
+                { title: "OBS Studio", sub: "9:16 舞台源" },
+                { title: "虚拟镜头+监听", sub: "VirtualCam + 扬声器" },
+                { title: "快手直播伴侣", sub: "摄像头+系统声音" },
+                { title: "快手观众端", sub: "含 AI 实时生成角标" }
+              ]
+            },
+            steps: [
+              {
+                id: "ks_a1",
+                title: "OBS 切 720×1280 竖屏并启动虚拟摄像机",
+                desc: "确认 OBS 场景已加载 ai-live-hub 舞台页且画幅为 720×1280，点击右下角「启动虚拟摄像机」。",
+                mockTitle: "OBS Studio · 路线 A 启动虚拟摄像机",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:180px;">
+                      <div style="font-weight:700;color:#182836;margin-bottom:6px;">场景：快手竖屏（720×1280）</div>
+                      <div style="font-size:11.5px;color:#526273;">来源：AI数字人舞台（已勾通过 OBS 控制音频）</div>
+                    </div>
+                    <div class="hl-box" style="padding:9px 16px;background:rgba(255,80,0,0.22) !important;color:#182836;font-weight:800;">
+                      <span class="hl-num">1</span>启动虚拟摄像机
+                    </div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_a2",
+                title: "OBS 高级音频属性将浏览器源设为「监听并输出」",
+                desc: "与抖音一致：打开 OBS 混音器齿轮 → 高级音频属性 → 把「AI数字人舞台」设为「监听并输出」，让语音送入系统声音供伴侣采集。",
+                mockTitle: "OBS Studio · 高级音频属性（开启声音输出）",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+                    <div style="font-weight:700;color:#28394a;">高级音频属性</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;background:#ffffff;padding:10px;border-radius:8px;border:1px solid #d3dce6;gap:8px;flex-wrap:wrap;">
+                      <span style="color:#14578a;font-weight:700;">AI数字人舞台</span>
+                      <div class="hl-box" style="padding:6px 12px;">
+                        <span class="hl-num">1</span>
+                        <span style="color:#865414;font-weight:800;">监听并输出 ▾</span>
+                      </div>
+                    </div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_a3",
+                title: "快手直播伴侣添加摄像头「OBS Virtual Camera」",
+                desc: "打开快手直播伴侣，切换竖屏模式 → 点击「摄像头」添加源 → 设备选择 OBS Virtual Camera，铺满画布并开启伴侣底部的「系统声音」。",
+                mockTitle: "快手直播伴侣 · 摄像头与系统声音配置",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                    <div style="font-weight:800;color:#aa4312;">快手直播伴侣（竖屏模式）</div>
+                    <div class="hl-box" style="padding:9px 10px;">
+                      <span class="hl-num">1</span><span class="hl-tag">选虚拟镜头</span>
+                      <div style="font-size:11px;color:#526273;">摄像头来源</div>
+                      <div class="ui-field" style="color:#865414;font-weight:700;margin-top:3px;">OBS Virtual Camera ▾</div>
+                    </div>
+                    <div class="hl-box" style="padding:9px 10px;">
+                      <span class="hl-num">2</span><span class="hl-tag">开启收音</span>
+                      <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:5px;">
+                        <span style="color:#14643b;font-weight:700;">🔊 系统声音（已开启）</span>
+                        <span style="color:#526273;">🎙 麦克风已静音</span>
+                      </div>
+                      <div style="background:#ffffff;height:7px;border-radius:999px;overflow:hidden;"><div class="vu-bar-fill"></div></div>
+                    </div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_a4",
+                title: "核对 AI 合规角标后点击伴侣「开始直播」",
+                desc: "检查画面中「AI 实时生成画面」标识完整无裁切，试说一句确认系统声音跳动正常，点击快手直播伴侣「开始直播」。",
+                mockTitle: "快手直播伴侣 · 音画核对与开播",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:16px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center;">
+                    <div style="font-size:12px;color:#14643b;">✓ 画面清晰 · 系统声音正常 · AI 标识可见</div>
+                    <div class="hl-box" style="padding:10px 28px;background:#aa4312 !important;color:#fff;font-weight:800;font-size:14px;">
+                      <span class="hl-num">1</span>开始直播
+                    </div>
+                  </div>
+                `
+              }
+            ],
+            startOrder: [
+              "启动 LiveTalking + ai-live-hub，切至「快手」预设",
+              "OBS 开启「监听并输出」并启动「虚拟摄像机」",
+              "打开快手直播伴侣选 OBS Virtual Camera + 开系统声音 → 点「开始直播」"
+            ],
+            stopOrder: [
+              "第一步：先在快手直播伴侣点「结束直播」",
+              "第二步：回到 OBS 点「停止虚拟摄像机」"
+            ],
+            stopWarn: "路线 A 同样走桌面系统声音，开播时务必关闭其他软件的提示音，避免串音进直播间。"
+          },
+          B: {
+            label: "路线 B：快手直播开放平台 RTMP 直推（省内存 · 无伴侣）",
+            specs: [
+              { label: "推荐 OBS Profile", value: "Kuaishou_RTMP_9x16" },
+              { label: "推荐 OBS Scene", value: "快手竖屏" },
+              { label: "画质 / 码率 / 关键帧", value: "720×1280 · 30FPS · 3500Kbps · 2s" },
+              { label: "快手直播开放平台", value: "https://studio.kuaishou.com" }
+            ],
+            flow: {
+              subtitle: "路线 B（省内存）：OBS 单路 NVENC 直推快手 RTMP，无需开伴侣客户端",
+              nodes: [
+                { title: "ai-live-hub", sub: "LiveTalking :28900" },
+                { title: "OBS Studio", sub: "NVENC H.264 单编" },
+                { title: "RTMP 直推", sub: "服务器 + 串流密钥" },
+                { title: "快手开放平台", sub: "studio.kuaishou.com" },
+                { title: "快手观众端", sub: "含 AI 实时生成角标" }
+              ]
+            },
+            steps: [
+              {
+                id: "ks_b1",
+                title: "登录快手直播开放平台 studio.kuaishou.com",
+                desc: "电脑浏览器登录 studio.kuaishou.com，进入「直播管理 / 开播工具」，选择「第三方推流（OBS 推流）」模式。",
+                mockTitle: "浏览器 · 快手直播开放平台 (studio.kuaishou.com)",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                    <div style="font-size:11.5px;color:#526273;">🔒 https://studio.kuaishou.com</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                      <div style="padding:12px;background:#ffffff;border:1px solid #d3dce6;border-radius:8px;opacity:0.55;">
+                        <div style="font-weight:700;">快手直播伴侣</div>
+                        <div style="font-size:11px;color:#526273;">需安装桌面端</div>
+                      </div>
+                      <div class="hl-box" style="padding:12px;">
+                        <span class="hl-num">1</span><span class="hl-tag">选直推省内存</span>
+                        <div style="font-weight:800;color:#865414;">第三方 / OBS RTMP 推流</div>
+                        <div style="font-size:11px;color:#28394a;margin-top:3px;">获取专属 RTMP 推流码</div>
+                      </div>
+                    </div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_b2",
+                title: "创建直播并复制 RTMP 服务器与串流密钥",
+                desc: "填写直播标题、竖屏封面与科普分区，生成推流信息后分别复制「RTMP 服务器地址」和「串流密钥」。",
+                mockTitle: "快手开放平台 · 获取推流地址与密钥",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+                    <div class="hl-box" style="padding:8px 10px;">
+                      <span class="hl-num">1</span>
+                      <div style="font-size:11px;color:#526273;">RTMP 服务器</div>
+                      <div class="ui-field" style="color:#865414;margin-top:3px;">rtmp://txpush.kuaishou.com/live/</div>
+                    </div>
+                    <div class="hl-box" style="padding:8px 10px;">
+                      <span class="hl-num">2</span>
+                      <div style="font-size:11px;color:#526273;">串流密钥</div>
+                      <div class="ui-field" style="color:#865414;margin-top:3px;">ks_9281736?kssign=a8f29c...</div>
+                    </div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_b3",
+                title: "OBS 填入 RTMP 参数并确认 NVENC 编码",
+                desc: "OBS 设置 → 直播（自定义）填入服务器和密钥；输出页确认 NVIDIA NVENC H.264、CBR 3500Kbps、关键帧 2 秒。",
+                mockTitle: "OBS Studio · 填入快手 RTMP 参数",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:9px;">
+                    <div class="hl-box" style="padding:7px 9px;"><span class="hl-num">1</span><span style="color:#865414;font-family:monospace;">服务器：rtmp://txpush.kuaishou.com/live/</span></div>
+                    <div class="hl-box" style="padding:7px 9px;"><span class="hl-num">2</span><span style="color:#865414;font-family:monospace;">密钥：••••••••••••••••••••••••</span></div>
+                    <div style="font-size:11.5px;color:#14643b;">优势：无需开「监听并输出」，浏览器源音频直接走 OBS 内部编码推流，完全隔离桌面杂音！</div>
+                  </div>
+                `
+              },
+              {
+                id: "ks_b4",
+                title: "先 OBS 推流绿灯 → 再回开放平台点击开播",
+                desc: "点击 OBS「开始推流」确认绿灯，回到 studio.kuaishou.com 确认预览窗出画后点击「正式开播」。",
+                mockTitle: "OBS 绿灯推流 → 快手开放平台开播",
+                renderMock: () => `
+                  <div class="ui-window" style="padding:16px;display:flex;justify-content:space-around;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div class="hl-box" style="padding:9px 14px;background:#1d4ed8 !important;color:#fff;font-weight:700;"><span class="hl-num">1</span>OBS 开始推流 (绿灯)</div>
+                    <span style="font-size:18px;color:#aa4312;font-weight:900;">→</span>
+                    <div class="hl-box" style="padding:9px 16px;background:#aa4312 !important;color:#fff;font-weight:800;"><span class="hl-num">2</span>后台确认画面点开播</div>
+                  </div>
+                `
+              }
+            ],
+            startOrder: [
+              "启动 LiveTalking + ai-live-hub，切至「快手」预设",
+              "登录 studio.kuaishou.com 创建第三方推流，复制 RTMP 地址与密钥填进 OBS",
+              "先点 OBS「开始推流」看到绿灯 → 再在快手网页后台确认预览画面后点开播"
+            ],
+            stopOrder: [
+              "第一步：先在快手网页后台点「结束直播」",
+              "第二步：再回到 OBS 点击「停止推流」"
+            ],
+            stopWarn: "部分新号在开放平台暂无 RTMP 权限，若看不到第三方推流入口，请直接点上方切换到「路线 A（虚拟摄像头）」零门槛开播。"
+          }
+        },
+        tips: [
+          { level: "ok", title: "双路线按需选择（省内存优先选路线 B）", body: "已有开放平台权限的账号强烈推荐路线 B 直推，少开一个伴侣进程能省出约 500MB 内存与 0.3GB 显存；新号无门槛直接走路线 A。" },
+          { level: "warn", title: "路线 A 注意区分声音通道", body: "走虚拟摄像头时，务必开启 OBS 监听并输出；走路线 B 直推时，可把 OBS 监听关回「关闭监听」，避免自己听见重音。" },
+          { level: "danger", title: "快手反挂机与 AI 标识要求", body: "快手严查静态画面挂机，确保 ai-live-hub 知识解说连播与动态板书持续更新，并保留「AI 实时生成画面」角标。" }
+        ]
+      },
+
+      /* -------------------- 5. 百度（百家号） -------------------- */
+      {
+        id: "baidu",
+        name: "百度（百家号）",
+        shortName: "百度",
+        brand: "#255db1",
+        brandRgb: "59, 130, 246",
+        accessTag: "RTMP 拆分直推",
+        ratioTag: "16:9 横 / 9:16 竖",
+        tagline: "百家号后台发一整段完整 RTMP 链接，核心技巧是在最后一个「/」处拆成服务器+密钥两段填入 OBS。",
+        iconSvg: `<svg viewBox="0 0 32 32" width="26" height="26" fill="none"><rect width="32" height="32" rx="8" fill="#255db1" fill-opacity="0.18"/><ellipse cx="10.5" cy="13.5" rx="2.1" ry="2.8" fill="#255db1"/><ellipse cx="14.2" cy="9.8" rx="2" ry="2.6" fill="#255db1"/><ellipse cx="18.6" cy="9.8" rx="2" ry="2.6" fill="#255db1"/><ellipse cx="22" cy="13.5" rx="2.1" ry="2.8" fill="#255db1"/><path d="M10.5 21.5c0-3 2.3-5.2 5.5-5.2s5.5 2.2 5.5 5.2c0 1.8-1.4 3-3.2 3h-4.6c-1.8 0-3.2-1.2-3.2-3z" fill="#255db1"/></svg>`,
+        specs: [
+          { label: "推荐 OBS Profile", value: "Baidu_720p_16x9" },
+          { label: "推荐 OBS Scene", value: "百度科普直播" },
+          { label: "画质 / 码率 / 关键帧", value: "1280×720 · 30FPS · 3500Kbps · 2s" },
+          { label: "百家号后台入口", value: "https://baijiahao.baidu.com" }
+        ],
+        flow: {
+          subtitle: "完整 RTMP 末斜杠拆分 → OBS 直推 → 扫码预览自检 → 正式开播",
+          nodes: [
+            { title: "ai-live-hub", sub: "LiveTalking :28900" },
+            { title: "OBS Studio", sub: "NVENC H.264 3500K" },
+            { title: "RTMP 拆分直推", sub: "末斜杠切服务器+密钥" },
+            { title: "百家号后台", sub: "预览扫码自检→开播" },
+            { title: "百度 App 观众", sub: "含 AI 实时生成角标" }
+          ]
+        },
+        steps: [
+          {
+            id: "bd_1",
+            title: "登录百家号 → 直播管理 → 创建「第三方/OBS 推流」",
+            desc: "访问 baijiahao.baidu.com 登录作者后台 → 左侧菜单进入「直播管理」→ 点「创建直播」→ 推流方式勾选「第三方 / OBS 推流」，填好标题与封面提交。",
+            mockTitle: "浏览器 · 百家号后台 (baijiahao.baidu.com)",
+            renderMock: () => `
+              <div class="ui-window" style="display:grid;grid-template-columns:115px 1fr;min-height:265px;">
+                <div class="ui-sidebar">
+                  <div style="font-weight:800;color:#14578a;padding:4px 4px 10px;">百家号后台</div>
+                  <div class="ui-nav-item">首页</div>
+                  <div class="ui-nav-item">内容管理</div>
+                  <div class="ui-nav-item active" style="background:rgba(59,130,246,0.22);color:#14578a;">直播管理</div>
+                </div>
+                <div style="padding:14px;display:flex;flex-direction:column;gap:11px;">
+                  <div style="font-weight:700;color:#182836;">创建新直播</div>
+                  <div class="ui-field">标题：AI 趣味科普：教家长与长辈用大白话学懂人工智能</div>
+                  <div class="hl-box" style="padding:10px;display:flex;align-items:center;gap:10px;">
+                    <span class="hl-num">1</span><span class="hl-tag">必选模式</span>
+                    <span style="width:15px;height:15px;border-radius:50%;border:4px solid #255db1;background:#fff;display:inline-block;"></span>
+                    <span style="font-weight:700;color:#14578a;">第三方推流 / OBS 推流</span>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end;">
+                    <span style="background:#255db1;color:#fff;padding:7px 14px;border-radius:7px;font-weight:700;">生成推流地址</span>
+                  </div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "bd_2",
+            title: "核心图解：把一整段完整 RTMP 地址按最后一个「/」拆成两段",
+            desc: "百家号常给出一整条完整 RTMP 链接！千万不要整条塞进服务器框，找到最后一个斜杠「/」，前面（含斜杠）放进 OBS「服务器」，后面全部放进「串流密钥」。",
+            mockTitle: "RTMP 地址色块拆分图解（一眼看懂绝不填错）",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <div style="font-size:11.5px;color:#526273;">百家号后台给出的原始完整 RTMP 地址示例：</div>
+                <div style="background:#ffffff;border:1px solid #d3dce6;border-radius:10px;padding:12px;font-family:ui-monospace,monospace;font-size:12px;line-height:1.8;word-break:break-all;">
+                  <span style="background:rgba(59,130,246,0.28);color:#14578a;padding:3px 6px;border-radius:6px;border:1px solid #255db1;">rtmp://push.bcelive.com/live/</span><span style="background:#ef4444;color:#fff;padding:2px 6px;border-radius:4px;font-weight:900;margin:0 4px;">✂ 末斜杠切开</span><span style="background:rgba(245,158,11,0.25);color:#865414;padding:3px 6px;border-radius:6px;border:1px solid #f59e0b;">bjh_982374a?auth_key=17956-0-8f9c</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <div class="hl-box" style="padding:9px 10px;border-color:#255db1 !important;background:rgba(59,130,246,0.12) !important;">
+                    <span class="hl-num" style="background:#255db1;">1</span>
+                    <div style="font-size:11px;color:#14578a;font-weight:700;">前半段 → OBS「服务器」</div>
+                    <div style="font-family:monospace;font-size:11px;color:#28394a;margin-top:4px;word-break:break-all;">rtmp://push.bcelive.com/live/</div>
+                    <button class="copy-mini" style="margin-top:6px;" onclick="copyText('rtmp://push.bcelive.com/live/', '已复制示例前半段（服务器）')">复制示例前半段</button>
+                  </div>
+                  <div class="hl-box" style="padding:9px 10px;border-color:#f59e0b !important;background:rgba(245,158,11,0.12) !important;">
+                    <span class="hl-num" style="background:#f59e0b;color:#f6f5f1;">2</span>
+                    <div style="font-size:11px;color:#865414;font-weight:700;">后半段 → OBS「串流密钥」</div>
+                    <div style="font-family:monospace;font-size:11px;color:#28394a;margin-top:4px;word-break:break-all;">bjh_982374a?auth_key=17956-0-8f9c</div>
+                    <button class="copy-mini" style="margin-top:6px;" onclick="copyText('bjh_982374a?auth_key=17956-0-8f9c', '已复制示例后半段（串流密钥）')">复制示例后半段</button>
+                  </div>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "bd_3",
+            title: "将拆分好的两段填入 OBS 并启动推流",
+            desc: "打开 OBS 设置 → 直播 → 服务选「自定义」，分别粘贴拆分后的「服务器」和「串流密钥」，确定后点主界面右下角「开始推流」，确认底部变绿灯。",
+            mockTitle: "OBS Studio · 填入拆分后的百度服务器与密钥",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:flex;flex-direction:column;gap:10px;">
+                <div style="display:grid;grid-template-columns:80px 1fr;gap:9px;align-items:center;">
+                  <span style="color:#526273;">服务器</span>
+                  <div class="hl-box" style="padding:6px 9px;border-color:#255db1 !important;background:rgba(59,130,246,0.14) !important;">
+                    <span class="hl-num" style="background:#255db1;">1</span>
+                    <span style="font-family:monospace;color:#14578a;">rtmp://push.bcelive.com/live/</span>
+                  </div>
+                  <span style="color:#526273;">串流密钥</span>
+                  <div class="hl-box" style="padding:6px 9px;border-color:#f59e0b !important;background:rgba(245,158,11,0.14) !important;">
+                    <span class="hl-num" style="background:#f59e0b;color:#f6f5f1;">2</span>
+                    <span style="font-family:monospace;color:#865414;">bjh_982374a?auth_key=17956-0-8f9c</span>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#ffffff;padding:9px 12px;border-radius:8px;border:1px solid #d3dce6;margin-top:4px;">
+                  <span style="color:#14643b;font-weight:700;">● 推流绿灯 · 3510 kb/s · 0% 丢帧</span>
+                  <span style="background:#1d4ed8;color:#fff;padding:5px 12px;border-radius:6px;font-weight:700;">已开始推流</span>
+                </div>
+              </div>
+            `
+          },
+          {
+            id: "bd_4",
+            title: "后台点「预览直播」扫码自检音画，确认无误再正式开播",
+            desc: "回到百家号「内容管理 → 直播」找到刚创建的场次，点「预览直播」，用手机百度 App 扫码听声音、看画质与 AI 角标，全部正常后再点「正式开播」。",
+            mockTitle: "百家号内容管理 · 扫码预览自检 → 正式开播",
+            renderMock: () => `
+              <div class="ui-window" style="padding:14px;display:grid;grid-template-columns:1fr 145px;gap:14px;align-items:center;">
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <div style="font-weight:700;color:#28394a;">内容管理 · 待开播场次</div>
+                  <div style="font-size:11.5px;color:#526273;">状态：<span style="color:#14643b;font-weight:700;">已检测到推流信号</span></div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <div class="hl-box" style="padding:7px 12px;color:#14578a;font-weight:700;">
+                      <span class="hl-num">1</span>预览直播（扫码自检）
+                    </div>
+                    <div class="hl-box" style="padding:7px 14px;background:#255db1 !important;color:#fff;font-weight:800;">
+                      <span class="hl-num">2</span>正式开播
+                    </div>
+                  </div>
+                </div>
+                <div style="background:#fff;border-radius:10px;padding:10px;text-align:center;color:#edf2f7;">
+                  <svg viewBox="0 0 60 60" width="76" height="76" style="display:block;margin:0 auto;">
+                    <rect x="2" y="2" width="16" height="16" fill="none" stroke="#edf2f7" stroke-width="4"/><rect x="7" y="7" width="6" height="6" fill="#edf2f7"/>
+                    <rect x="42" y="2" width="16" height="16" fill="none" stroke="#edf2f7" stroke-width="4"/><rect x="47" y="7" width="6" height="6" fill="#edf2f7"/>
+                    <rect x="2" y="42" width="16" height="16" fill="none" stroke="#edf2f7" stroke-width="4"/><rect x="7" y="47" width="6" height="6" fill="#edf2f7"/>
+                    <rect x="24" y="24" width="12" height="12" fill="#255db1"/><rect x="24" y="8" width="6" height="6" fill="#edf2f7"/><rect x="42" y="28" width="8" height="6" fill="#edf2f7"/><rect x="40" y="42" width="14" height="6" fill="#edf2f7"/><rect x="26" y="42" width="8" height="14" fill="#edf2f7"/>
+                  </svg>
+                  <div style="font-size:10px;font-weight:700;margin-top:4px;">百度 App 扫码预览</div>
+                </div>
+              </div>
+            `
+          }
+        ],
+        startOrder: [
+          "启动 LiveTalking + ai-live-hub，确认舞台出画和声音正常",
+          "登录 baijiahao.baidu.com 创建「第三方/OBS 推流」，按最后一个「/」拆分服务器与密钥填进 OBS",
+          "点 OBS「开始推流」看到绿灯 → 在百家号内容管理点「预览直播」用手机扫码验音画",
+          "确认音画同步且「AI 实时生成画面」角标清晰后，点后台「正式开播」"
+        ],
+        stopOrder: [
+          "第一步：在百家号直播管理后台点击「结束直播」",
+          "第二步：回到 OBS 点击「停止推流」"
+        ],
+        stopWarn: "若整段 RTMP 链接未拆分直接粘贴到「服务器」框、串流密钥留空，OBS 往往会报「无法连接服务器」或鉴权失败，务必按最后一个斜杠拆开！",
+        tips: [
+          { level: "danger", title: "末斜杠拆分是百度接入头号易错点", body: "推流链接末尾通常带有 ?auth_key=... 鉴权参数，必须连同流名一起完整放进「串流密钥」框，切勿漏掉问号后的参数。" },
+          { level: "warn", title: "一定要先「预览直播」扫码自检", body: "百度预览链路不对外曝光，提前用手机扫码听一下数字人声音是否偏小或有爆音，最稳妥。" },
+          { level: "ok", title: "知识科普在百度搜索生态长尾佳", body: "直播标题写清科普关键词（如防骗、AI入门），直播画面始终保留「AI 实时生成画面」合规角标。" }
+        ]
+      }
+    ];
+
+    /* =====================================================================
+     * 4. 应用状态与核心渲染引擎
+     * ===================================================================== */
+    let activePlatformIdx = 0;
+    let activeStepIdx = 0;
+    let kuaishouRoute = "A"; // 'A' 或 'B'
+    let checksMap = loadChecks();
+
+    // 获取当前平台当前生效的配置对象（自动适配快手双路线）
+    function getResolvedPlatform(plat) {
+      if (!plat.hasRoutes) return plat;
+      const rt = plat.routes[kuaishouRoute];
+      return {
+        ...plat,
+        specs: rt.specs,
+        flow: rt.flow,
+        steps: rt.steps,
+        startOrder: rt.startOrder,
+        stopOrder: rt.stopOrder,
+        stopWarn: rt.stopWarn
+      };
+    }
+
+    // 计算全局与单平台打卡进度
+    function getPlatformStepList(plat) {
+      if (!plat.hasRoutes) return plat.steps;
+      return plat.routes[kuaishouRoute].steps;
+    }
+
+    function updateGlobalProgress() {
+      let total = 0, done = 0;
+      PLATFORMS.forEach(p => {
+        const list = getPlatformStepList(p);
+        total += list.length;
+        list.forEach(s => { if (checksMap[s.id]) done++; });
+      });
+      document.getElementById("global-progress-pill").textContent = `打卡进度：${done} / ${total} 步`;
+    }
+
+    // 渲染五大平台切换卡片
+    function renderPlatformCards() {
+      const grid = document.getElementById("platform-cards-grid");
+      grid.innerHTML = PLATFORMS.map((p, idx) => {
+        const active = idx === activePlatformIdx;
+        const steps = getPlatformStepList(p);
+        const doneCnt = steps.filter(s => checksMap[s.id]).length;
+        const dotsHtml = steps.map(s => {
+          const ok = !!checksMap[s.id];
+          return `<span style="width:7px;height:7px;border-radius:50%;background:${ok ? '#22c55e' : (active ? 'rgba(255,255,255,0.28)' : '#d3dce6')};display:inline-block;"></span>`;
+        }).join("");
+
+        return `
+          <button class="plat-card ${active ? 'active' : ''}"
+                  style="--card-brand:${p.brand};--card-rgb:${p.brandRgb};"
+                  onclick="selectPlatform(${idx})"
+                  aria-pressed="${active}">
+            <div class="brand-dot-bar"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+              ${p.iconSvg}
+              <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(${p.brandRgb},0.16);color:${p.brand};border:1px solid rgba(${p.brandRgb},0.35);white-space:nowrap;">${p.accessTag}</span>
+            </div>
+            <div>
+              <div style="font-size:15px;font-weight:800;color:#182836;">${p.name}</div>
+              <div style="font-size:11.5px;color:#526273;margin-top:2px;">画幅：${p.ratioTag}</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:4px;">
+              <div style="display:flex;gap:4px;align-items:center;">${dotsHtml}</div>
+              <span style="font-size:10.5px;color:${doneCnt === steps.length ? '#14643b' : '#64748b'};font-weight:600;">${doneCnt}/${steps.length}</span>
+            </div>
+          </button>
+        `;
+      }).join("");
+      updateGlobalProgress();
+    }
+
+    // 渲染模块 B：SVG 信号链路流程图
+    function renderSignalSvg(flow, brandColor) {
+      const nodes = flow.nodes;
+      const boxW = 176, boxH = 66, gap = 58, padX = 16, y = 26;
+      const totalW = padX * 2 + nodes.length * boxW + (nodes.length - 1) * gap;
+
+      let linesSvg = "";
+      let nodesSvg = "";
+
+      nodes.forEach((n, i) => {
+        const x = padX + i * (boxW + gap);
+        if (i < nodes.length - 1) {
+          const x1 = x + boxW + 2;
+          const x2 = x + boxW + gap - 8;
+          const cy = y + boxH / 2;
+          linesSvg += `
+            <line x1="${x1}" y1="${cy}" x2="${x2}" y2="${cy}" stroke="#b6c5d3" stroke-width="3" stroke-linecap="round"/>
+            <line x1="${x1}" y1="${cy}" x2="${x2}" y2="${cy}" stroke="${brandColor}" stroke-width="2.5" stroke-linecap="round" class="svg-flow-line"/>
+            <polygon points="${x2 + 6},${cy} ${x2 - 2},${cy - 5} ${x2 - 2},${cy + 5}" fill="${brandColor}"/>
+          `;
+        }
+        const isCenter = i === 2;
+        nodesSvg += `
+          <g transform="translate(${x}, ${y})">
+            <rect width="${boxW}" height="${boxH}" rx="12"
+                  fill="${isCenter ? 'rgba(var(--brand-rgb),0.15)' : '#ffffff'}"
+                  stroke="${isCenter ? brandColor : '#d3dce6'}" stroke-width="${isCenter ? '2' : '1.4'}"/>
+            <circle cx="16" cy="18" r="7" fill="${brandColor}" fill-opacity="0.22"/>
+            <text x="16" y="21.5" text-anchor="middle" fill="${brandColor}" font-size="9.5" font-weight="800">${i + 1}</text>
+            <text x="30" y="22" fill="#182836" font-size="12.5" font-weight="700">${n.title}</text>
+            <text x="14" y="47" fill="#526273" font-size="10.8">${n.sub}</text>
+          </g>
+        `;
+      });
+
+      return `
+        <svg viewBox="0 0 ${totalW} 118" style="width:100%;min-width:760px;height:auto;display:block;">
+          ${linesSvg}
+          ${nodesSvg}
+        </svg>
+      `;
+    }
+
+    // 渲染主内容区（全部 5 个模块）
+    function renderMainArea() {
+      const basePlat = PLATFORMS[activePlatformIdx];
+      const plat = getResolvedPlatform(basePlat);
+
+      // 注入当前平台主题色 CSS 变量
+      document.documentElement.style.setProperty("--brand", plat.brand);
+      document.documentElement.style.setProperty("--brand-rgb", plat.brandRgb);
+
+      // 保护步索引不越界
+      if (activeStepIdx >= plat.steps.length) activeStepIdx = 0;
+
+      // 重新触发轻柔切换动画
+      const mainEl = document.getElementById("platform-main-area");
+      mainEl.classList.remove("fade-in");
+      void mainEl.offsetWidth;
+      mainEl.classList.add("fade-in");
+
+      // 1. 平台头部横幅 + 快手路线切换
+      const routeSwitchHtml = plat.hasRoutes ? `
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #d3dce6;">
+          <button onclick="setKuaishouRoute('A')"
+                  style="flex:1;min-width:240px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:12.5px;font-weight:700;text-align:left;border:1.5px solid ${kuaishouRoute === 'A' ? '#aa4312' : '#d3dce6'};background:${kuaishouRoute === 'A' ? 'rgba(255,80,0,0.2)' : '#ffffff'};color:${kuaishouRoute === 'A' ? '#fff' : '#526273'};">
+            ${kuaishouRoute === 'A' ? '● ' : '○ '}${plat.routes.A.label}
+          </button>
+          <button onclick="setKuaishouRoute('B')"
+                  style="flex:1;min-width:240px;padding:10px 14px;border-radius:10px;cursor:pointer;font-size:12.5px;font-weight:700;text-align:left;border:1.5px solid ${kuaishouRoute === 'B' ? '#aa4312' : '#d3dce6'};background:${kuaishouRoute === 'B' ? 'rgba(255,80,0,0.2)' : '#ffffff'};color:${kuaishouRoute === 'B' ? '#fff' : '#526273'};">
+            ${kuaishouRoute === 'B' ? '● ' : '○ '}${plat.routes.B.label}
+          </button>
+        </div>
+      ` : "";
+
+      document.getElementById("platform-hero").innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            ${plat.iconSvg}
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <h2 style="font-size:19px;font-weight:800;color:#182836;">${plat.name} 接入操作演示</h2>
+                <span class="brand-bg-soft" style="font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;color:var(--brand);">${plat.accessTag}</span>
+                <span class="badge-chip">${plat.ratioTag}</span>
+              </div>
+              <p style="font-size:13px;color:#28394a;margin-top:4px;">${plat.tagline}</p>
+            </div>
+          </div>
+          <span style="font-size:11.5px;padding:5px 11px;border-radius:999px;background:rgba(239,68,68,0.16);border:1px solid rgba(239,68,68,0.45);color:#a42d3c;font-weight:700;">
+            合规必留角标：AI 实时生成画面
+          </span>
+        </div>
+        ${routeSwitchHtml}
+      `;
+
+      // 2. 模块 A：参数速查栏
+      document.getElementById("module-a-specs").innerHTML = plat.specs.map(sp => `
+        <div class="spec-item">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <span style="font-size:11px;color:#526273;font-weight:600;">${sp.label}</span>
+            <button class="copy-mini" onclick="copyText('${sp.value.replace(/'/g, "\\'")}', '已复制 ${sp.label}')">复制</button>
+          </div>
+          <div class="spec-val">${sp.value}</div>
+        </div>
+      `).join("");
+
+      // 3. 模块 B：信号链路 SVG
+      document.getElementById("module-b-subtitle").textContent = plat.flow.subtitle;
+      document.getElementById("module-b-svg").innerHTML = renderSignalSvg(plat.flow, plat.brand);
+
+      // 4. 模块 C：分步图文演示
+      renderWalkthrough(plat);
+
+      // 5. 模块 D：开播 / 下播顺序
+      document.getElementById("module-d-seq").innerHTML = `
+        <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.38);border-radius:12px;padding:14px 16px;">
+          <div style="font-size:14px;font-weight:800;color:#14643b;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+            <span>▶</span> 正确开播顺序
+          </div>
+          <ol style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:#28394a;">
+            ${plat.startOrder.map((t, i) => `
+              <li style="display:flex;gap:8px;align-items:flex-start;">
+                <span style="min-width:20px;height:20px;border-radius:50%;background:#16a34a;color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;">${i + 1}</span>
+                <span>${t}</span>
+              </li>
+            `).join("")}
+          </ol>
+        </div>
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.38);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:10px;">
+          <div>
+            <div style="font-size:14px;font-weight:800;color:#a42d3c;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+              <span>■</span> 正确下播顺序
+            </div>
+            <ol style="list-style:none;display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:#28394a;">
+              ${plat.stopOrder.map((t, i) => `
+                <li style="display:flex;gap:8px;align-items:flex-start;">
+                  <span style="min-width:20px;height:20px;border-radius:50%;background:#dc2626;color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;">${i + 1}</span>
+                  <span>${t}</span>
+                </li>
+              `).join("")}
+            </ol>
+          </div>
+          <div style="font-size:12px;color:#a42d3c;background:rgba(127,29,29,0.35);border:1px solid rgba(239,68,68,0.45);padding:8px 10px;border-radius:8px;">
+            <strong>红线警示：</strong>${plat.stopWarn}
+          </div>
+        </div>
+      `;
+
+      // 6. 模块 E：避坑清单
+      const lvStyle = {
+        danger: { border: "rgba(239,68,68,0.45)", bg: "rgba(239,68,68,0.09)", title: "#a42d3c", icon: "⚠" },
+        warn:   { border: "rgba(245,158,11,0.45)", bg: "rgba(245,158,11,0.09)", title: "#865414", icon: "★" },
+        ok:     { border: "rgba(56,189,248,0.4)",  bg: "rgba(56,189,248,0.08)", title: "#14578a", icon: "✓" }
+      };
+      document.getElementById("module-e-tips").innerHTML = plat.tips.map(tp => {
+        const st = lvStyle[tp.level] || lvStyle.ok;
+        return `
+          <div style="background:${st.bg};border:1px solid ${st.border};border-radius:12px;padding:13px 14px;">
+            <div style="font-size:13.5px;font-weight:700;color:${st.title};margin-bottom:5px;">${st.icon} ${tp.title}</div>
+            <div style="font-size:12.5px;color:#28394a;line-height:1.6;">${tp.body}</div>
+          </div>
+        `;
+      }).join("");
+
+      // 7. 底部前后切换按钮文案
+      const prevPlat = PLATFORMS[(activePlatformIdx - 1 + PLATFORMS.length) % PLATFORMS.length];
+      const nextPlat = PLATFORMS[(activePlatformIdx + 1) % PLATFORMS.length];
+      document.getElementById("prev-plat-btn").textContent = `← 上一个：${prevPlat.shortName}`;
+      document.getElementById("next-plat-btn").textContent = `下一个：${nextPlat.shortName} →`;
+    }
+
+    // 渲染模块 C 左侧步骤与右侧模拟截图
+    function renderWalkthrough(plat) {
+      const stepsEl = document.getElementById("module-c-steps");
+      stepsEl.innerHTML = plat.steps.map((s, idx) => {
+        const isAct = idx === activeStepIdx;
+        const isDone = !!checksMap[s.id];
+        return `
+          <div class="step-item ${isAct ? 'active' : ''}" onclick="selectStep(${idx})">
+            <div class="step-check ${isDone ? 'checked' : ''}"
+                 onclick="event.stopPropagation(); toggleStepCheck('${s.id}')"
+                 title="点击打卡标记已完成"
+                 role="checkbox" aria-checked="${isDone}">
+              ${isDone ? '✓' : ''}
+            </div>
+            <div style="flex:1;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                <span style="font-size:11px;font-weight:800;color:${isAct ? 'var(--brand)' : '#64748b'};">STEP ${idx + 1}</span>
+                ${isDone ? '<span style="font-size:10.5px;color:#14643b;font-weight:700;">已打卡</span>' : ''}
+              </div>
+              <div style="font-size:13.5px;font-weight:700;color:#182836;margin:2px 0 4px;">${s.title}</div>
+              <div style="font-size:12px;color:#526273;line-height:1.55;">${s.desc}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const curStep = plat.steps[activeStepIdx];
+      document.getElementById("module-c-mock-title").textContent = curStep.mockTitle;
+      document.getElementById("module-c-step-indicator").textContent = `STEP ${activeStepIdx + 1} / ${plat.steps.length}`;
+      const mockBody = document.getElementById("module-c-mock-body");
+      mockBody.innerHTML = `<div class="fade-in">${curStep.renderMock()}</div>`;
+    }
+
+    /* =====================================================================
+     * 5. 交互控制函数
+     * ===================================================================== */
+    function selectPlatform(idx) {
+      activePlatformIdx = idx;
+      activeStepIdx = 0;
+      renderPlatformCards();
+      renderMainArea();
+    }
+
+    function switchPlatformOffset(delta) {
+      const next = (activePlatformIdx + delta + PLATFORMS.length) % PLATFORMS.length;
+      selectPlatform(next);
+      window.scrollTo({ top: 160, behavior: "smooth" });
+    }
+
+    function setKuaishouRoute(routeKey) {
+      kuaishouRoute = routeKey;
+      activeStepIdx = 0;
+      renderPlatformCards();
+      renderMainArea();
+      showToast(`已切换快手接入路线：路线 ${routeKey}`);
+    }
+
+    function selectStep(idx) {
+      activeStepIdx = idx;
+      renderWalkthrough(getResolvedPlatform(PLATFORMS[activePlatformIdx]));
+    }
+
+    function stepNav(delta) {
+      const plat = getResolvedPlatform(PLATFORMS[activePlatformIdx]);
+      const next = activeStepIdx + delta;
+      if (next >= 0 && next < plat.steps.length) {
+        selectStep(next);
+      } else if (next >= plat.steps.length) {
+        showToast("已到达当前平台最后一步，可切往下一个平台");
+      }
+    }
+
+    function toggleStepCheck(stepId) {
+      checksMap[stepId] = !checksMap[stepId];
+      saveChecks(checksMap);
+      renderPlatformCards();
+      renderWalkthrough(getResolvedPlatform(PLATFORMS[activePlatformIdx]));
+      if (checksMap[stepId]) showToast("已完成本步配置打卡");
+    }
+
+    function resetAllProgress() {
+      checksMap = {};
+      saveChecks(checksMap);
+      renderPlatformCards();
+      renderWalkthrough(getResolvedPlatform(PLATFORMS[activePlatformIdx]));
+      showToast("已重置全部平台打卡记录");
+    }
+
+    // 键盘左右方向键快捷切换平台
+    document.addEventListener("keydown", (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+      if (e.key === "ArrowRight") {
+        switchPlatformOffset(1);
+      } else if (e.key === "ArrowLeft") {
+        switchPlatformOffset(-1);
+      }
+    });
+
+    // 初始化首屏
+    renderPlatformCards();
+    renderMainArea();
+  </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+Free & Commercial-Use Fonts Preset Catalog (Zero Commercial Licensing Fee)
+===========================================================================
+
+All font presets bundled or referenced by ysaizb-ultralight are licensed under
+the SIL Open Font License 1.1 (SIL OFL 1.1), permitting free personal and
+commercial livestreaming use without commercial font licensing fees:
+
+1. Noto Sans SC (思源黑体)
+   - License: SIL Open Font License 1.1
+   - Source : Google / Adobe Noto CJK (local Windows install)
+
+2. Noto Serif SC (思源宋体)
+   - License: SIL Open Font License 1.1
+   - Source : Google / Adobe Noto CJK (local Windows install)
+
+3. Source Han Serif SC Heavy (思源宋体特粗)
+   - License: SIL Open Font License 1.1
+   - Source : Adobe / Google Source Han Serif CJK (local Windows install)
+
+4. Smiley Sans (得意黑) — SmileySans-Oblique.ttf
+   - License: SIL Open Font License 1.1
+   - Source : https://github.com/atelier-anchor/smiley-sans (v2.0.1)
+
+5. LXGW WenKai Lite (霞鹜文楷精简版) — LXGWWenKaiLite-Regular.ttf
+   - License: SIL Open Font License 1.1
+   - Source : https://github.com/lxgw/LxgwWenKai-Lite (v1.530)
+
+Proprietary fonts such as Microsoft YaHei / SimSun / SimHei are intentionally
+excluded from all preset options.

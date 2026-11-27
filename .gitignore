@@ -1,0 +1,33 @@
+# 真实密钥配置（只提交 *.example.json）
+config.json
+platform_profiles.json
+launcher_settings.json
+launcher_presets.json
+platform_state.json
+全局配置/
+主播素材/
+
+# 上游底座仓库（由 01_install.bat 自动克隆）与大型权重
+Ultralight-Digital-Human/
+models/
+avatars/
+raw_videos/
+voices/*.wav
+voices/*.mp3
+voices/*.flac
+voices/*.m4a
+
+# 运行时缓存与编译产物
+tts_cache/
+**/kb_data/.indexes/
+logs/
+*.log
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+dist/
+build/
+*.exe
+*.spec

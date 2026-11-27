@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>泳昇数字人 · AI Live Stage & Overlay</title>
+  <style>
+    /* 预设免费开源无商业授权风险字体 (SIL OFL 1.1) */
+    @font-face {
+      font-family: "Smiley Sans";
+      src: local("Smiley Sans"), local("SmileySans-Oblique"), url("/static/fonts/SmileySans-Oblique.ttf") format("truetype");
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "LXGW WenKai";
+      src: local("LXGW WenKai"), local("LXGW WenKai Lite"), url("/static/fonts/LXGWWenKaiLite-Regular.ttf") format("truetype");
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Noto Sans SC";
+      src: local("Noto Sans SC"), local("Source Han Sans SC");
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Noto Serif SC";
+      src: local("Noto Serif SC"), local("Source Han Serif SC");
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Source Han Serif SC Heavy";
+      src: local("Source Han Serif SC Heavy"), local("Source Han Serif SC"), local("Noto Serif SC Bold");
+      font-display: swap;
+    }
+    :root {
+      --stage-font: "Noto Sans SC", "Source Han Sans SC", "Smiley Sans", "LXGW WenKai", sans-serif;
+      --board-fs: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: transparent;
+      font-family: var(--stage-font);
+      color: #fff;
+    }
+    #video-wrap {
+      position: fixed; inset: 0; z-index: 1;
+      display: flex; align-items: center; justify-content: center;
+      background: #0b0f17;
+    }
+    #avatar-video { width: 100%; height: 100%; object-fit: cover; }
+    /* 换装定格防黑屏 */
+    #freeze-canvas {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; z-index: 5;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    body.preview #avatar-video, body.preview #freeze-canvas { object-fit: contain; }
+    #freeze-canvas.active { opacity: 1; }
+    #switch-toast {
+      position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.85); color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      padding: 6px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      z-index: 25; display: none;
+    }
+    #overlay-wrap {
+      position: fixed; inset: 0; z-index: 10; pointer-events: none;
+      padding: 20px;
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .top-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    .card {
+      background: rgba(12, 18, 30, 0.62);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 12px 16px;
+      max-width: 320px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    }
+    .card h4 { font-size: 14px; color: #38bdf8; margin-bottom: 6px; letter-spacing: 0.5px; }
+    .card li { list-style: none; font-size: 12px; line-height: 1.65; color: #e2e8f0; }
+    .badge {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+      background: rgba(239, 68, 68, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.8px;
+      z-index: 20;
+    }
+    .subtitle-zone {
+      width: 100%; display: flex; flex-direction: column; align-items: center;
+      gap: 8px; margin-bottom: 18px;
+    }
+    #question-pill {
+      display: none;
+      background: rgba(56, 189, 248, 0.85);
+      color: #082f49; font-weight: 700; font-size: 15px;
+      padding: 6px 16px; border-radius: 999px;
+      max-width: 82%; text-align: center;
+    }
+    #subtitle-box {
+      display: none;
+      background: rgba(9, 13, 22, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 14px;
+      padding: 12px 22px;
+      max-width: 88%;
+      font-size: 24px; font-weight: 600; line-height: 1.45;
+      text-align: center;
+      text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+    }
+    .hidden { display: none !important; }
+    /* 知识板书与右上/左上定位控制 */
+    #left-card.board { border-color: rgba(250, 204, 21, 0.55); max-width: 380px; }
+    #left-card.board h4 { color: #facc15; font-size: calc(var(--board-fs) + 1px); }
+    #left-card.board li { font-size: var(--board-fs); line-height: 1.65; color: #fff; font-weight: 600; }
+    #left-card.board li.sec { font-size: max(11px, calc(var(--board-fs) - 2px)); font-weight: 400; color: #cbd5e1; margin-top: 4px; }
+    body.board-pos-right #left-card { order: 2; margin-left: auto; }
+    body.board-pos-right #right-card { order: 1; }
+    body.board-pos-left #left-card { order: 1; }
+    body.board-pos-left #right-card { order: 2; margin-left: auto; }
+    body.portrait #left-card.board { max-width: 78%; }
+    body.portrait #left-card.board li { font-size: max(12px, calc(var(--board-fs) - 1px)); }
+    /* 竖屏平台（视频号 / TikTok 9:16）：说明卡按位置左/右对齐，字幕避开底部平台评论区 */
+    body.portrait #overlay-wrap { padding: 14px; }
+    body.portrait .top-bar { flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 34px; }
+    body.portrait.board-pos-right #left-card { order: 1; align-self: flex-end; margin-left: 0; }
+    body.portrait.board-pos-right #right-card { order: 2; align-self: flex-start; margin-left: 0; }
+    body.portrait.board-pos-left #left-card { order: 1; align-self: flex-start; margin-left: 0; }
+    body.portrait.board-pos-left #right-card { order: 2; align-self: flex-start; margin-left: 0; }
+    body.portrait .card { max-width: 66%; padding: 8px 12px; }
+    body.portrait .card h4 { font-size: 12px; }
+    body.portrait .card li { font-size: 11px; line-height: 1.5; }
+    body.portrait .subtitle-zone { margin-bottom: 26%; }
+    body.portrait #subtitle-box { font-size: 19px; max-width: 94%; padding: 10px 16px; }
+    body.portrait #question-pill { font-size: 13px; max-width: 92%; }
+    body.lang-en #subtitle-box { font-family: inherit; }
+    @keyframes subFadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes subPopIn {
+      0% { opacity: 0; transform: scale(0.92); }
+      70% { opacity: 1; transform: scale(1.03); }
+      100% { transform: scale(1); }
+    }
+    #subtitle-box.anim-fade_up { animation: subFadeUp 0.24s ease-out; }
+    #subtitle-box.anim-pop_in { animation: subPopIn 0.26s cubic-bezier(0.22, 1.35, 0.36, 1); }
+  
+    /* 在原有样式基础上追加/替换 #video-wrap 相关样式 */
+    #stage-bg {
+      position: fixed; inset: 0; z-index: 0;
+      background: #0b0f17; overflow: hidden;
+    }
+    #stage-bg.greenscreen { background: #00ff00 !important; }
+    #bg-video, #bg-next, #bg-img {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; opacity: 0; transition: opacity 0.45s ease;
+    }
+    #bg-video.show, #bg-next.show, #bg-img.show { opacity: 1; }
+
+    #video-wrap {
+      position: fixed; inset: 0; z-index: 4;
+      display: flex; align-items: flex-end; justify-content: center;
+      pointer-events: none;
+      transform-origin: center bottom;
+      will-change: transform;
+      transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #video-wrap.act-motion-sunglasses { animation: actCharSunglasses 1.5s ease-in-out infinite alternate; }
+    #video-wrap.act-motion-milktea { animation: actCharMilktea 1.4s ease-in-out infinite alternate; }
+    #video-wrap.act-motion-heart { animation: actCharHeart 0.95s ease-in-out infinite alternate; }
+    #video-wrap.act-motion-wave { animation: actCharWave 0.78s ease-in-out infinite alternate; }
+    #video-wrap.act-motion-thumbsup { animation: actCharThumbsup 0.9s ease-in-out infinite alternate; }
+    @keyframes actCharSunglasses {
+      0% { transform: scale(1.03) translateY(0) rotate(-1.6deg); }
+      50% { transform: scale(1.06) translateY(-10px) rotate(1.4deg); }
+      100% { transform: scale(1.04) translateY(-4px) rotate(-0.8deg); }
+    }
+    @keyframes actCharMilktea {
+      0% { transform: scale(1.02) translateY(0) rotate(-2.2deg); }
+      100% { transform: scale(1.05) translateY(-10px) rotate(2.0deg); }
+    }
+    @keyframes actCharHeart {
+      0% { transform: scale(1.01) translateY(0) rotate(-1.2deg); }
+      100% { transform: scale(1.07) translateY(-14px) rotate(1.2deg); }
+    }
+    @keyframes actCharWave {
+      0% { transform: scale(1.02) translateX(-10px) rotate(-2.8deg); }
+      100% { transform: scale(1.04) translateX(10px) translateY(-8px) rotate(2.8deg); }
+    }
+    @keyframes actCharThumbsup {
+      0% { transform: scale(1.02) translateY(0); }
+      55% { transform: scale(1.06) translateY(-15px); }
+      100% { transform: scale(1.04) translateY(-6px) rotate(1.2deg); }
+    }
+    /* 原始视频保持解码活跃，启用抠像时隐藏到 1px 不可见区域 */
+    #avatar-video {
+      width: 100%; height: 100%; object-fit: contain; object-position: center bottom;
+    }
+    #avatar-video.keyed-hidden {
+      position: fixed; width: 1px; height: 1px; opacity: 0.001; pointer-events: none;
+    }
+    #chroma-canvas {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; object-position: center bottom;
+      z-index: 5; display: none; pointer-events: none;
+    }
+    #chroma-canvas.active { display: block; }
+    #freeze-canvas { z-index: 8; }
+  
+    #video-wrap:has(.active#chroma-canvas) {background:transparent}
+
+    /* 礼物与手势互动特效层（0 显存，绿幕短片优先，未放短片时自动播内置动态道具贴纸） */
+    #action-video {
+      position: fixed; width: 1px; height: 1px; opacity: 0.001; pointer-events: none;
+    }
+    #action-video.direct-show {
+      inset: 0; width: 100%; height: 100%;
+      object-fit: contain; object-position: center bottom;
+      opacity: 1; z-index: 6;
+    }
+    #prop-layer {
+      position: fixed; inset: 0; z-index: 9; pointer-events: none; overflow: hidden;
+    }
+    #action-banner {
+      position: fixed; top: 96px; left: 50%; transform: translateX(-50%) scale(0.9);
+      background: linear-gradient(135deg, rgba(15,23,42,0.88), rgba(30,41,59,0.88));
+      border: 1.5px solid rgba(250,204,21,0.75);
+      color: #fef08a; font-size: 16px; font-weight: 700;
+      padding: 8px 20px; border-radius: 999px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+      opacity: 0; transition: all 0.28s cubic-bezier(0.22,1,0.36,1);
+      white-space: nowrap; z-index: 12;
+    }
+    #action-banner.show { opacity: 1; transform: translateX(-50%) scale(1); }
+    body.portrait #action-banner { top: 56px; font-size: 14px; padding: 6px 15px; }
+    .prop-item {
+      position: absolute; opacity: 0; pointer-events: none;
+      filter: drop-shadow(0 8px 18px rgba(0,0,0,0.45));
+    }
+    /* 墨镜：从上方弹性滑落戴在主播眼部区域 */
+    .prop-sunglasses {
+      top: 23.5%; left: 50%; width: 22%; min-width: 110px; max-width: 210px;
+      transform: translate(-50%, -90px) scale(0.9);
+      transition: transform 0.55s cubic-bezier(0.22,1.35,0.36,1), opacity 0.25s ease;
+    }
+    body.portrait .prop-sunglasses { top: 20.5%; width: 35%; }
+    .prop-sunglasses.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    /* 奶茶：从右下角优雅举杯摇晃 */
+    .prop-milktea {
+      bottom: 22%; right: 16%; width: 19%; min-width: 96px; max-width: 170px;
+      transform: translateY(70px) rotate(12deg);
+      transition: transform 0.5s cubic-bezier(0.22,1.25,0.36,1), opacity 0.28s ease;
+    }
+    body.portrait .prop-milktea { bottom: 29%; right: 8%; width: 30%; }
+    .prop-milktea.show { opacity: 1; transform: translateY(0) rotate(-6deg); animation: propSwing 1.4s ease-in-out infinite alternate; }
+    /* 手势徽章（比心 / 挥手 / 点赞） */
+    .prop-gesture {
+      bottom: 28%; left: 50%; transform: translate(-50%, 30px) scale(0.75);
+      font-size: 84px; line-height: 1;
+      padding: 10px 18px; border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,0.22), rgba(255,255,255,0));
+      transition: transform 0.35s cubic-bezier(0.22,1.4,0.36,1), opacity 0.25s ease;
+    }
+    body.portrait .prop-gesture { bottom: 35%; font-size: 74px; }
+    .prop-gesture.show { opacity: 1; transform: translate(-50%, 0) scale(1); animation: propPop 0.9s ease-in-out infinite alternate; }
+    .prop-particle {
+      position: absolute; bottom: 26%; font-size: 28px; opacity: 0;
+      animation: floatUp 2.2s ease-out forwards;
+    }
+    @keyframes propSwing { from { transform: translateY(0) rotate(-8deg); } to { transform: translateY(-8px) rotate(6deg); } }
+    @keyframes propPop { from { transform: translate(-50%, 0) scale(1); } to { transform: translate(-50%, -10px) scale(1.12); } }
+    @keyframes floatUp {
+      0% { transform: translateY(0) scale(0.6); opacity: 0; }
+      18% { opacity: 0.95; }
+      100% { transform: translateY(-240px) scale(1.25); opacity: 0; }
+    }
+    </style>
+</head>
+<body>
+
+  <div id="stage-bg">
+    <video id="bg-video" loop muted playsinline></video>
+    <video id="bg-next" loop muted playsinline></video>
+    <img id="bg-img" alt="" />
+  </div>
+    <div id="video-wrap">
+    <video id="avatar-video" autoplay playsinline></video>
+    <video id="action-video" muted playsinline></video>
+    <canvas id="chroma-canvas"></canvas>
+    <canvas id="freeze-canvas"></canvas>
+  </div>
+  <div id="prop-layer">
+    <div id="action-banner"></div>
+    <div id="prop-sunglasses" class="prop-item prop-sunglasses">
+      <svg viewBox="0 0 220 76" width="100%" aria-hidden="true">
+        <defs>
+          <linearGradient id="sgLens" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0f172a"/>
+            <stop offset="45%" stop-color="#1e293b"/>
+            <stop offset="55%" stop-color="#38bdf8" stop-opacity="0.85"/>
+            <stop offset="100%" stop-color="#020617"/>
+          </linearGradient>
+        </defs>
+        <path d="M8 22 H212" stroke="#111827" stroke-width="7" stroke-linecap="round"/>
+        <rect x="14" y="16" width="84" height="48" rx="14" fill="url(#sgLens)" stroke="#facc15" stroke-width="4"/>
+        <rect x="122" y="16" width="84" height="48" rx="14" fill="url(#sgLens)" stroke="#facc15" stroke-width="4"/>
+        <path d="M98 28 Q110 20 122 28" fill="none" stroke="#facc15" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M26 26 L44 26 L30 52 L22 52 Z" fill="#ffffff" fill-opacity="0.28"/>
+        <path d="M134 26 L152 26 L138 52 L130 52 Z" fill="#ffffff" fill-opacity="0.28"/>
+      </svg>
+    </div>
+    <div id="prop-milktea" class="prop-item prop-milktea">
+      <svg viewBox="0 0 140 190" width="100%" aria-hidden="true">
+        <rect x="64" y="8" width="12" height="58" rx="5" fill="#f97316" transform="rotate(8 70 36)"/>
+        <path d="M30 62 L110 62 L98 172 C97 178 92 182 86 182 L54 182 C48 182 43 178 42 172 Z" fill="#f3d5b5" stroke="#fff7ed" stroke-width="4"/>
+        <path d="M36 96 Q70 86 104 96 L98 172 C97 178 92 182 86 182 L54 182 C48 182 43 178 42 172 Z" fill="#d4a373"/>
+        <ellipse cx="70" cy="62" rx="44" ry="12" fill="#fffbeb" stroke="#f59e0b" stroke-width="3"/>
+        <circle cx="54" cy="164" r="6.5" fill="#291d16"/><circle cx="70" cy="168" r="6.5" fill="#291d16"/>
+        <circle cx="86" cy="163" r="6.5" fill="#291d16"/><circle cx="62" cy="151" r="6" fill="#291d16"/>
+        <circle cx="79" cy="152" r="6" fill="#291d16"/>
+        <text x="70" y="132" text-anchor="middle" fill="#7c2d12" font-size="18" font-weight="800">干杯</text>
+      </svg>
+    </div>
+    <div id="prop-gesture" class="prop-item prop-gesture"></div>
+    <div id="prop-particles"></div>
+  </div>
+  <div id="switch-toast">正在切换造型...</div>
+  <div id="compliance-badge" class="badge">AI 实时生成画面</div>
+  <div id="overlay-wrap">
+    <div class="top-bar">
+      <div class="card" id="left-card">
+        <h4 id="left-title">互动玩法</h4>
+        <ul id="left-list"></ul>
+      </div>
+      <div class="card" id="right-card">
+        <h4 id="right-title">当前状态</h4>
+        <ul id="right-list"></ul>
+      </div>
+    </div>
+    <div class="subtitle-zone">
+      <div id="question-pill"></div>
+      <div id="subtitle-box"></div>
+    </div>
+  </div>
+
+  <script>
+    // ?layer=all（数字人 + 叠层，推荐） | avatar（仅数字人） | overlay（仅透明叠层）
+    const params = new URLSearchParams(location.search);
+    const layer = params.get("layer") || "all";
+    const preview = params.get("preview") === "1";
+    if (preview) {
+      document.body.classList.add("preview");
+      const media = matchMedia("(orientation: portrait)");
+      const sync = () => document.body.classList.toggle("portrait", media.matches);
+      sync();
+      media.addEventListener("change", sync);
+    }
+    const muted = params.get("muted") === "1";
+
+    const videoWrap = document.getElementById("video-wrap");
+    const overlayWrap = document.getElementById("overlay-wrap");
+    const badgeEl = document.getElementById("compliance-badge");
+    const videoEl = document.getElementById("avatar-video");
+    const freezeCanvas = document.getElementById("freeze-canvas");
+    const switchToast = document.getElementById("switch-toast");
+    videoEl.muted = muted;
+
+    if (layer === "overlay") videoWrap.classList.add("hidden");
+    if (layer === "avatar") {
+      overlayWrap.classList.add("hidden");
+      badgeEl.classList.add("hidden");
+    }
+
+    let pc = null;
+    let currentAvatarId = "";
+    let currentSessionId = "";
+    let isSwitching = false;
+    let reconnectTimer = null;
+    let connectSeq = 0;
+    let autoplayMutedFallback = false;
+
+    function scheduleReconnect(ms) {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWebRTC(currentAvatarId); }, ms);
+    }
+
+    function captureFreezeFrame() {
+      if (videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
+        freezeCanvas.width = videoEl.videoWidth;
+        freezeCanvas.height = videoEl.videoHeight;
+        const ctx = freezeCanvas.getContext("2d");
+        ctx.drawImage(videoEl, 0, 0, freezeCanvas.width, freezeCanvas.height);
+        freezeCanvas.classList.add("active");
+      }
+      switchToast.style.display = "block";
+    }
+
+    function releaseFreezeFrame() {
+      freezeCanvas.classList.remove("active");
+      switchToast.style.display = "none";
+      isSwitching = false;
+    }
+
+    async function connectWebRTC(targetAvatar = "") {
+      if (layer === "overlay") return;
+      const seq = ++connectSeq;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (targetAvatar) currentAvatarId = targetAvatar;
+      if (pc) {
+        pc.onconnectionstatechange = null;
+        try { pc.close(); } catch (_) {}
+        pc = null;
+        // 给 LiveTalking 800ms 释放旧会话，避免与 max_session 冲突
+        await new Promise(r => setTimeout(r, 800));
+        if (seq !== connectSeq) return;
+      }
+      const thisPc = new RTCPeerConnection({ iceServers: [] });
+      pc = thisPc;
+      thisPc.addTransceiver("audio", { direction: "recvonly" });
+      thisPc.addTransceiver("video", { direction: "recvonly" });
+      const media = new MediaStream();
+      videoEl.srcObject = media;
+      videoEl.volume = 1.0;
+      videoEl.onplaying = () => {
+        if (!muted && !autoplayMutedFallback) videoEl.muted = false;
+        setTimeout(releaseFreezeFrame, 250);
+      };
+      thisPc.ontrack = ({track}) => {
+        media.addTrack(track);
+        if (!muted && !autoplayMutedFallback) videoEl.muted = false;
+        videoEl.play().catch(() => {
+          if (pc !== thisPc) return;
+          autoplayMutedFallback = true;
+          videoEl.muted = true;
+          videoEl.play().catch(() => {});
+        });
+      };
+      thisPc.onconnectionstatechange = () => {
+        if (pc !== thisPc) return;
+        if (!isSwitching && ["failed", "disconnected", "closed"].includes(thisPc.connectionState)) {
+          scheduleReconnect(3000);
+        }
+      };
+      try {
+        const offer = await thisPc.createOffer();
+        await thisPc.setLocalDescription(offer);
+        if (thisPc.iceGatheringState !== "complete") {
+          await new Promise(resolve => {
+            const finish = () => { clearTimeout(timer); thisPc.removeEventListener("icegatheringstatechange", check); resolve(); };
+            const check = () => { if (thisPc.iceGatheringState === "complete") finish(); };
+            const timer = setTimeout(finish, 2500);
+            thisPc.addEventListener("icegatheringstatechange", check);
+            check();
+          });
+        }
+        if (pc !== thisPc || seq !== connectSeq) return;
+        const payload = { sdp: thisPc.localDescription.sdp, type: thisPc.localDescription.type };
+        if (currentAvatarId) payload.avatar = currentAvatarId;
+        const res = await fetch("/api/webrtc/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("Offer failed: " + res.status);
+        const answer = await res.json();
+        if (!answer.sdp) throw new Error(answer.msg || "缺少视频会话应答");
+        currentSessionId = answer.sessionid || "";
+        await thisPc.setRemoteDescription({ type: answer.type, sdp: answer.sdp });
+      } catch (err) {
+        console.warn("WebRTC 重连中:", err);
+        if (pc === thisPc && seq === connectSeq) {
+          const isMaxSess = String(err).includes("Maximum session");
+          if (preview || isSwitching) {
+            switchToast.textContent = isMaxSess ? "等待旧画面释放，正在重连…" : "正在重新连接人物画面…";
+            switchToast.style.display = "block";
+          }
+          scheduleReconnect(isMaxSess ? 1500 : 3000);
+        }
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, s => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[s]));
+    }
+
+    // 知识库章节字幕 + 下部口播字幕配置及效果实时应用
+    let boardActive = false;
+    let overlayCfg = {
+      show_kb_board: true,
+      board_position: "top-right",
+      show_info_card: true,
+      show_badge: true,
+      show_subtitle: true,
+      show_question_pill: true,
+      font_preset: "noto_sans_sc",
+      font_css: '"Noto Sans SC", "Source Han Sans SC", sans-serif',
+      effect_preset: "classic_dark",
+      font_size: 24,
+      board_font_size: 14,
+      font_weight: 600,
+      text_color: "#FFFFFF",
+      stroke_color: "#000000",
+      stroke_width: 2,
+      bg_opacity: 78,
+      bottom_offset_pct: 4,
+      animation: "fade_up"
+    };
+    let lastSubText = "";
+    let lastQText = "";
+
+    function syncTopVisibility() {
+      const leftCard = document.getElementById("left-card");
+      const rightCard = document.getElementById("right-card");
+      if (badgeEl && layer !== "avatar") {
+        badgeEl.classList.toggle("hidden", overlayCfg.show_badge === false);
+      }
+      if (rightCard) {
+        rightCard.classList.toggle("hidden", overlayCfg.show_info_card === false);
+      }
+      if (leftCard) {
+        const showLeft = boardActive ? (overlayCfg.show_kb_board !== false) : (overlayCfg.show_info_card !== false);
+        leftCard.classList.toggle("hidden", !showLeft);
+      }
+    }
+
+    function applyOverlayConfig(cfg) {
+      if (!cfg) return;
+      overlayCfg = { ...overlayCfg, ...cfg };
+      const pos = overlayCfg.board_position === "top-left" ? "top-left" : "top-right";
+      document.body.classList.toggle("board-pos-right", pos === "top-right");
+      document.body.classList.toggle("board-pos-left", pos === "top-left");
+
+      const fontCss = overlayCfg.font_css || '"Noto Sans SC", "Source Han Sans SC", sans-serif';
+      document.documentElement.style.setProperty("--stage-font", fontCss);
+      document.documentElement.style.setProperty("--board-fs", (Number(overlayCfg.board_font_size) || 14) + "px");
+
+      syncTopVisibility();
+
+      const isPort = document.body.classList.contains("portrait");
+      const zone = document.querySelector(".subtitle-zone");
+      const subEl = document.getElementById("subtitle-box");
+      if (zone) {
+        const rawPct = Number(overlayCfg.bottom_offset_pct ?? 4);
+        const effPct = (isPort && rawPct <= 6) ? 26 : rawPct;
+        zone.style.marginBottom = effPct + "%";
+      }
+      if (subEl) {
+        const baseFs = Number(overlayCfg.font_size || 24);
+        subEl.style.fontFamily = fontCss;
+        subEl.style.fontSize = (isPort ? Math.max(14, Math.round(baseFs * 0.82)) : baseFs) + "px";
+        subEl.style.fontWeight = String(overlayCfg.font_weight || 600);
+        subEl.style.color = overlayCfg.text_color || "#FFFFFF";
+
+        const alpha = Math.max(0, Math.min(95, Number(overlayCfg.bg_opacity ?? 78))) / 100;
+        const ep = overlayCfg.effect_preset || "classic_dark";
+        if (alpha <= 0.01) {
+          subEl.style.background = "transparent";
+          subEl.style.borderColor = "transparent";
+          subEl.style.boxShadow = "none";
+          subEl.style.padding = "6px 12px";
+        } else if (ep === "warm_card") {
+          subEl.style.background = `rgba(248, 250, 252, ${alpha.toFixed(2)})`;
+          subEl.style.borderColor = "rgba(15, 23, 42, 0.14)";
+          subEl.style.boxShadow = "0 6px 22px rgba(15, 23, 42, 0.25)";
+          subEl.style.padding = isPort ? "10px 16px" : "12px 22px";
+        } else if (ep === "neon_glow") {
+          subEl.style.background = `rgba(9, 13, 28, ${alpha.toFixed(2)})`;
+          subEl.style.borderColor = "rgba(56, 189, 248, 0.65)";
+          subEl.style.boxShadow = "0 0 18px rgba(56, 189, 248, 0.45)";
+          subEl.style.padding = isPort ? "10px 16px" : "12px 22px";
+        } else {
+          subEl.style.background = `rgba(9, 13, 22, ${alpha.toFixed(2)})`;
+          subEl.style.borderColor = ep === "gold_story" ? "rgba(250, 204, 21, 0.45)" : "rgba(255, 255, 255, 0.18)";
+          subEl.style.boxShadow = "0 6px 20px rgba(0, 0, 0, 0.35)";
+          subEl.style.padding = isPort ? "10px 16px" : "12px 22px";
+        }
+
+        const sw = Math.max(0, Math.min(6, Number(overlayCfg.stroke_width ?? 2)));
+        const sc = overlayCfg.stroke_color || "#000000";
+        if (sw > 0) {
+          subEl.style.webkitTextStroke = `${sw * 2}px ${sc}`;
+          subEl.style.paintOrder = "stroke fill";
+          let shadows = `0 2px 6px rgba(0, 0, 0, 0.78)`;
+          if (ep === "neon_glow") shadows += `, 0 0 12px rgba(56, 189, 248, 0.85)`;
+          else if (ep === "gold_story") shadows += `, 0 0 10px rgba(250, 204, 21, 0.55)`;
+          subEl.style.textShadow = shadows;
+        } else {
+          subEl.style.webkitTextStroke = "0px transparent";
+          subEl.style.paintOrder = "normal";
+          subEl.style.textShadow = ep === "warm_card" ? "none" : "0 2px 6px rgba(0, 0, 0, 0.65)";
+        }
+      }
+      updateSubtitle(lastSubText, lastQText, true);
+    }
+
+    function renderPanel(panel) {
+      if (!panel) return;
+      if (panel.compliance_badge) badgeEl.textContent = panel.compliance_badge;
+      document.getElementById("right-title").textContent = panel.right_title || "";
+      document.getElementById("right-list").innerHTML =
+        (panel.right_lines || []).map(x => `<li>• ${escapeHtml(x)}</li>`).join("");
+      if (!boardActive) {
+        document.getElementById("left-card").classList.remove("board");
+        document.getElementById("left-title").textContent = panel.left_title || "";
+        document.getElementById("left-list").innerHTML =
+          (panel.left_lines || []).map(x => `<li>• ${escapeHtml(x)}</li>`).join("");
+      }
+      syncTopVisibility();
+    }
+
+    function renderBoard(b) {
+      if (!b || !b.chapter) return;
+      document.getElementById("left-card").classList.add("board");
+      document.getElementById("left-title").textContent =
+        b.chapter + (b.progress ? `  ${b.progress}` : "");
+      const pts = (b.points && b.points.length) ? b.points : [b.section || "欢迎公屏提问"];
+      document.getElementById("left-list").innerHTML =
+        pts.map(x => `<li>✦ ${escapeHtml(x)}</li>`).join("") +
+        (b.section && b.points && b.points.length ? `<li class="sec">正在讲：${escapeHtml(b.section)}</li>` : "");
+      syncTopVisibility();
+    }
+
+    function updateSubtitle(sub, q, skipAnim = false) {
+      const textChanged = (sub || "") !== lastSubText;
+      lastSubText = sub || "";
+      lastQText = q || "";
+      const subEl = document.getElementById("subtitle-box");
+      const qEl = document.getElementById("question-pill");
+      if (lastSubText && overlayCfg.show_subtitle !== false) {
+        subEl.textContent = lastSubText;
+        subEl.style.display = "block";
+        if (!skipAnim && textChanged) {
+          subEl.classList.remove("anim-fade_up", "anim-pop_in");
+          if (overlayCfg.animation && overlayCfg.animation !== "none") {
+            void subEl.offsetWidth;
+            subEl.classList.add("anim-" + overlayCfg.animation);
+          }
+        }
+      } else {
+        subEl.style.display = "none";
+      }
+      if (lastQText && overlayCfg.show_question_pill !== false) {
+        qEl.textContent = lastQText;
+        qEl.style.display = "inline-block";
+      } else {
+        qEl.style.display = "none";
+      }
+    }
+
+    const stageBg = document.getElementById("stage-bg");
+    let bgVideo = document.getElementById("bg-video");
+    const bgImg = document.getElementById("bg-img");
+    const chromaCanvas = document.getElementById("chroma-canvas");
+
+    let bgState = {
+      mode: "original", // kb_auto | greenscreen | original
+      video_url: "",
+      media_type: "video",
+      chroma_color: "#00ff00",
+      similarity: 0.34,
+      smoothness: 0.08,
+      spill: 0.16
+    };
+
+    // 以解码帧为单位更新 WebGL 色度键。
+    let gl; // 延迟初始化，纯叠层不分配纹理
+    function createGL() { return chromaCanvas.getContext("webgl", { alpha: true, premultipliedAlpha: false }); }
+    let glReady = false, uKeyCbCr, uSim, uSmooth, uSpill, videoTex;
+
+    function initChromaWebGL() {
+      gl = createGL();
+      if (!gl) return;
+      const vsSrc = `
+        attribute vec2 a_pos;
+        attribute vec2 a_uv;
+        varying vec2 v_uv;
+        void main() {
+          gl_Position = vec4(a_pos, 0.0, 1.0);
+          v_uv = a_uv;
+        }`;
+      const fsSrc = `
+        precision mediump float;
+        uniform sampler2D u_tex;
+        uniform vec2 u_keyCbCr;
+        uniform float u_similarity;
+        uniform float u_smoothness;
+        uniform float u_spill;
+        varying vec2 v_uv;
+
+        vec2 rgb2cbcr(vec3 c) {
+          float cb = -0.168736 * c.r - 0.331264 * c.g + 0.500000 * c.b + 0.5;
+          float cr =  0.500000 * c.r - 0.418688 * c.g - 0.081312 * c.b + 0.5;
+          return vec2(cb, cr);
+        }
+
+        void main() {
+          vec4 px = texture2D(u_tex, v_uv);
+          float dist = distance(rgb2cbcr(px.rgb), u_keyCbCr);
+          float baseMask = dist - u_similarity;
+          float alpha = pow(clamp(baseMask / max(u_smoothness, 0.001), 0.0, 1.0), 1.5);
+          float spillVal = pow(clamp(baseMask / max(u_spill, 0.001), 0.0, 1.0), 1.5);
+          float luma = dot(px.rgb, vec3(0.2126, 0.7152, 0.0722));
+          vec3 cleanRgb = mix(vec3(luma), px.rgb, spillVal);
+          gl_FragColor = vec4(cleanRgb, alpha);
+        }`;
+
+      const compile = (type, src) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+      };
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+      gl.useProgram(prog);
+
+      const verts = new Float32Array([
+        -1, -1, 0, 1,   1, -1, 1, 1,   -1, 1, 0, 0,
+        -1,  1, 0, 0,   1, -1, 1, 1,    1, 1, 1, 0
+      ]);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+      const aPos = gl.getAttribLocation(prog, "a_pos");
+      const aUv = gl.getAttribLocation(prog, "a_uv");
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+      gl.enableVertexAttribArray(aUv);
+      gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
+
+      videoTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, videoTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+      uKeyCbCr = gl.getUniformLocation(prog, "u_keyCbCr");
+      uSim = gl.getUniformLocation(prog, "u_similarity");
+      uSmooth = gl.getUniformLocation(prog, "u_smoothness");
+      uSpill = gl.getUniformLocation(prog, "u_spill");
+      glReady = true;
+    }
+
+    function hexToCbCr(hex) {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "#00ff00");
+      const r = m ? parseInt(m[1], 16) / 255 : 0;
+      const g = m ? parseInt(m[2], 16) / 255 : 1;
+      const b = m ? parseInt(m[3], 16) / 255 : 0;
+      return [
+        -0.168736 * r - 0.331264 * g + 0.5 * b + 0.5,
+         0.5 * r - 0.418688 * g - 0.081312 * b + 0.5
+      ];
+    }
+
+    const actionVideo = document.getElementById("action-video");
+    const actionBanner = document.getElementById("action-banner");
+    const propSunglasses = document.getElementById("prop-sunglasses");
+    const propMilktea = document.getElementById("prop-milktea");
+    const propGesture = document.getElementById("prop-gesture");
+    const propParticles = document.getElementById("prop-particles");
+    let actionClipActive = false;
+    let actionHideTimer = null;
+
+    function clearStageAction() {
+      actionClipActive = false;
+      actionVideo.classList.remove("direct-show");
+      try { actionVideo.pause(); } catch (_) {}
+      videoWrap.classList.remove(
+        "act-motion-sunglasses",
+        "act-motion-milktea",
+        "act-motion-heart",
+        "act-motion-wave",
+        "act-motion-thumbsup"
+      );
+      actionBanner.classList.remove("show");
+      propSunglasses.classList.remove("show");
+      propMilktea.classList.remove("show");
+      propGesture.classList.remove("show");
+      propParticles.innerHTML = "";
+    }
+
+    function spawnParticles(symbol, count) {
+      propParticles.innerHTML = "";
+      for (let i = 0; i < count; i++) {
+        const el = document.createElement("div");
+        el.className = "prop-particle";
+        el.textContent = symbol;
+        el.style.left = (22 + Math.random() * 56) + "%";
+        el.style.animationDelay = (i * 0.16) + "s";
+        propParticles.appendChild(el);
+      }
+    }
+
+    function playStageAction(data) {
+      if (!data) return;
+      clearTimeout(actionHideTimer);
+      clearStageAction();
+      const durMs = Math.max(1800, Math.min(8000, Math.round((data.duration_sec || 4.0) * 1000)));
+      const label = data.label || "互动特效";
+      const user = data.user ? `${data.user} ` : "";
+      const gift = data.gift_item ? `送出 ${data.gift_item}${data.gift_num > 1 ? " ×" + data.gift_num : ""}` : `触发「${label}」`;
+      actionBanner.textContent = `✨ ${user}${gift}`;
+      actionBanner.classList.add("show");
+
+      const st = (data.motion || data.sticker || data.action_id || "heart").toLowerCase();
+      const validMotions = ["sunglasses", "milktea", "heart", "wave", "thumbsup"];
+      const motionKey = validMotions.includes(st) ? st : "heart";
+
+      // 角色本体物理动作关键帧（始终激活，确保人物有明确抬头/点头/摇晃/迎客体态反应）
+      void videoWrap.offsetWidth;
+      videoWrap.classList.add("act-motion-" + motionKey);
+
+      // 轨道 A：仅当用户上传了真实动作短片且未关闭 video 时才覆盖画面（不再用静态假短片顶掉直播嘴型）
+      if (data.video_url && data.use_video !== false && layer !== "overlay") {
+        actionVideo.oncanplay = async () => {
+          actionVideo.oncanplay = null;
+          try {
+            actionVideo.currentTime = 0;
+            await actionVideo.play();
+            if (bgState.mode === "original" || !glReady) {
+              actionVideo.classList.add("direct-show");
+            } else {
+              actionClipActive = true;
+            }
+          } catch (_) {
+            actionClipActive = false;
+            actionVideo.classList.remove("direct-show");
+          }
+        };
+        actionVideo.onended = () => {
+          actionClipActive = false;
+          actionVideo.classList.remove("direct-show");
+        };
+        actionVideo.src = data.video_url;
+        actionVideo.load();
+      }
+
+      // 轨道 B：动态道具贴纸与飘浮粒子始终协同展现
+      if (motionKey === "sunglasses") {
+        propSunglasses.classList.add("show");
+        spawnParticles("✨", 8);
+      } else if (motionKey === "milktea") {
+        propMilktea.classList.add("show");
+        spawnParticles("🧋", 7);
+      } else if (motionKey === "wave") {
+        propGesture.textContent = "👋";
+        propGesture.classList.add("show");
+        spawnParticles("✨", 8);
+      } else if (motionKey === "thumbsup") {
+        propGesture.textContent = "👍";
+        propGesture.classList.add("show");
+        spawnParticles("⭐", 8);
+      } else {
+        propGesture.textContent = "🫶";
+        propGesture.classList.add("show");
+        spawnParticles("💖", 10);
+      }
+      actionHideTimer = setTimeout(clearStageAction, durMs);
+    }
+
+    function renderChromaFrame() {
+      videoEl.requestVideoFrameCallback(renderChromaFrame);
+      if (!glReady || bgState.mode === "original" || layer === "overlay") return;
+      const srcEl = (actionClipActive && actionVideo.readyState >= 2 && actionVideo.videoWidth > 0) ? actionVideo : videoEl;
+      if (srcEl.readyState < 2 || srcEl.videoWidth === 0) return;
+
+      if (chromaCanvas.width !== srcEl.videoWidth || chromaCanvas.height !== srcEl.videoHeight) {
+        chromaCanvas.width = srcEl.videoWidth;
+        chromaCanvas.height = srcEl.videoHeight;
+        gl.viewport(0, 0, chromaCanvas.width, chromaCanvas.height);
+      }
+
+      gl.bindTexture(gl.TEXTURE_2D, videoTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, srcEl);
+
+      const [cb, cr] = hexToCbCr(bgState.chroma_color);
+      gl.uniform2f(uKeyCbCr, cb, cr);
+      gl.uniform1f(uSim, bgState.similarity);
+      gl.uniform1f(uSmooth, bgState.smoothness);
+      gl.uniform1f(uSpill, bgState.spill);
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function applyBackground(data) {
+      if (!data || layer === "overlay") return;
+      if (bgState.mode === data.mode && bgState.video_url === data.video_url && gl !== undefined) { Object.assign(bgState, data); return; }
+
+      bgState = { ...bgState, ...data };
+
+      if (!gl && bgState.mode !== "original") initChromaWebGL();
+      const useKeying = glReady && bgState.mode !== "original" && layer !== "overlay";
+      chromaCanvas.classList.toggle("active", useKeying);
+      videoEl.classList.toggle("keyed-hidden", useKeying);
+
+      stageBg.classList.toggle("greenscreen", bgState.mode === "greenscreen");
+      const url = bgState.video_url;
+      const next = document.getElementById(bgVideo.id === "bg-video" ? "bg-next" : "bg-video");
+      next.oncanplay = null;
+      next.pause();
+      if (bgState.mode !== "kb_auto" || !url) {
+        for (const el of [next, bgVideo, bgImg]) el.classList.remove("show");
+        bgVideo.pause();
+      } else if (bgState.media_type === "image") {
+        bgImg.onload = () => {
+          if (bgState.video_url !== url || bgState.mode !== "kb_auto") return;
+          bgImg.classList.add("show"); bgVideo.classList.remove("show"); bgVideo.pause();
+        };
+        bgImg.src = url;
+      } else {
+        next.oncanplay = async () => {
+          next.oncanplay = null;
+          try { await next.play(); } catch { return; }
+          if (bgState.video_url !== url || bgState.mode !== "kb_auto") return;
+          next.classList.add("show"); bgImg.classList.remove("show");
+          bgVideo.classList.remove("show"); bgVideo.pause(); bgVideo = next;
+        };
+        next.src = url;
+        next.load();
+      }
+    }
+
+    videoEl.requestVideoFrameCallback(renderChromaFrame);
+
+
+    if(layer==="overlay") stageBg.hidden=true;
+    const es = new EventSource("/api/events");
+    es.onmessage = (evt) => {
+      const data = JSON.parse(evt.data);
+      if(data.type==="bg_update") applyBackground(data);
+      if(data.type==="play_action") playStageAction(data);
+      if (data.type === "overlay_update") applyOverlayConfig(data);
+      if (data.type === "status") {
+        applyBackground(data.background);
+        if (data.orientation) {
+          document.body.classList.toggle("portrait", data.orientation === "portrait");
+        }
+        document.body.classList.toggle("lang-en", data.platform_lang === "en");
+        if (data.overlay) applyOverlayConfig(data.overlay);
+        boardActive = !!data.kb_board;
+        renderPanel(data.stage_panel);
+        if (boardActive) renderBoard(data.kb_board);
+        if (data.current_subtitle) updateSubtitle(data.current_subtitle, data.current_question || "");
+        else if (!data.is_speaking && !data.current_subtitle) updateSubtitle("", "");
+      } else if (data.type === "subtitle") {
+        updateSubtitle(data.subtitle, data.question);
+      } else if (data.type === "board_update") {
+        if (boardActive) renderBoard(data);
+      } else if (data.type === "switch_avatar" && layer !== "overlay") {
+        isSwitching = true;
+        captureFreezeFrame();
+        connectWebRTC(data.avatar_id);
+        // 兜底：12 秒仍未出帧也释放定格，避免永远卡在定格画面
+        setTimeout(() => { if (isSwitching) releaseFreezeFrame(); }, 12000);
+      }
+    };
+
+    window.addEventListener("pagehide", () => {
+      clearTimeout(reconnectTimer);
+      if (currentSessionId && navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon("/api/webrtc/release", new Blob([JSON.stringify({ sessionid: currentSessionId })], { type: "application/json" }));
+        } catch (_) {}
+      }
+      const old = pc;
+      pc = null;
+      if (old) old.close();
+    });
+    connectWebRTC();
+  </script>
+</body>
+</html>
