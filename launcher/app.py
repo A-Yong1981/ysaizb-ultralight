@@ -960,6 +960,11 @@ class LauncherApp(tk.Tk):
         cb_ove.pack(side="left", padx=(0, 6))
         cb_ove.bind("<<ComboboxSelected>>", lambda _e: self.on_save_overlay_eff_preset())
         ttk.Button(crow3, text="🎨 字幕/字体详调", style="Compact.TButton", command=self.on_open_overlay_dialog).pack(side="right", padx=2)
+        self.var_ov_fs = tk.StringVar(value=str(bk.get_overlay_cfg(self.cfg).get("font_size", 24)))
+        ttk.Button(crow3, text="A＋", style="Compact.TButton", width=3, command=lambda: self.on_bump_sub_font(4)).pack(side="right", padx=1)
+        ttk.Label(crow3, textvariable=self.var_ov_fs, style="Card.TLabel", width=3, anchor="center").pack(side="right")
+        ttk.Button(crow3, text="A−", style="Compact.TButton", width=3, command=lambda: self.on_bump_sub_font(-4)).pack(side="right", padx=1)
+        ttk.Label(crow3, text="字号:", style="Card.TLabel").pack(side="right", padx=(6, 2))
 
         # 3. 下半区：实时直播预览 + 直播记录与快捷互动（先 bottom 固定互动按钮区，再 expand 日志框，彻底杜绝按钮被截断）
         live_split = ttk.Frame(self.tab_obs)
@@ -973,6 +978,12 @@ class LauncherApp(tk.Tk):
         self.var_prev_ratio = tk.StringVar(value="auto")
         cb_pr = ttk.Combobox(pr_top, textvariable=self.var_prev_ratio, values=["auto", "portrait", "landscape"], state="readonly", width=10)
         cb_pr.pack(side="right")
+        pv_row = ttk.Frame(prev_card, style="Card.TFrame")
+        pv_row.pack(fill="x", pady=(0, 4))
+        self.var_preview_on = tk.BooleanVar(value=bool(self.lcfg.get("preview_enabled", True)))
+        ttk.Checkbutton(pv_row, text="开启预览", variable=self.var_preview_on, style="Card.TCheckbutton",
+                        command=self.on_toggle_preview).pack(side="left")
+        ttk.Button(pv_row, text="🖥 看真实画面", style="Compact.TButton", command=self.on_open_real_preview).pack(side="left", padx=4)
         cb_pr.bind("<<ComboboxSelected>>", lambda _e: self._render_live_preview(self._last_hub_st))
 
         self.live_canvas = tk.Canvas(prev_card, width=264, height=190, bg=self._theme()["canvas_bg"], highlightthickness=0)
@@ -2554,8 +2565,44 @@ class LauncherApp(tk.Tk):
             self._last_live_canvas_size = (w, h)
             self._render_live_preview(self._last_hub_st)
 
+    def on_toggle_preview(self) -> None:
+        """预览开关：桌面示意预览 + 中控/WebUI 真实画面预览一起开关（关掉后预览页自动断开，省 CPU）。"""
+        on = bool(self.var_preview_on.get())
+        self.lcfg["preview_enabled"] = on
+        bk.save_json(bk.LAUNCHER_CFG_PATH, self.lcfg)
+        if bk.is_port_open("127.0.0.1", 28910, 0.2):
+            threading.Thread(target=lambda: bk.http_json("http://127.0.0.1:28910/api/preview", "POST", {"enabled": on}, timeout=4.0),
+                             daemon=True).start()
+        self.log("已开启直播画面预览" if on else "已关闭直播画面预览（真实画面预览页会自动断开）")
+        self._render_live_preview(self._last_hub_st)
+
+    def on_open_real_preview(self) -> None:
+        if not bk.is_port_open("127.0.0.1", 28910, 0.2):
+            messagebox.showwarning("提示", "需要先开播（启动中控 :28910）才能看真实画面预览")
+            return
+        if not self.var_preview_on.get():
+            self.var_preview_on.set(True)
+            self.on_toggle_preview()
+        else:
+            bk.http_json("http://127.0.0.1:28910/api/preview", "POST", {"enabled": True}, timeout=4.0)
+        # 预览页共享 OBS 同一路画面，不额外推理、不影响正式直播
+        webbrowser.open("http://127.0.0.1:28910/stage?layer=all&muted=0&preview=1")
+
     def _render_live_preview(self, hub_st: Dict[str, Any] | None) -> None:
         self._last_hub_st = hub_st
+        if hasattr(self, "var_preview_on"):
+            pv = (hub_st or {}).get("preview") if isinstance(hub_st, dict) else None
+            if isinstance(pv, dict) and "enabled" in pv and bool(pv["enabled"]) != bool(self.var_preview_on.get()):
+                self.var_preview_on.set(bool(pv["enabled"]))   # 网页端改了开关，桌面端同步
+            if not self.var_preview_on.get():
+                t = self._theme()
+                self.live_canvas.delete("all")
+                cw = max(self.live_canvas.winfo_width(), 264)
+                chh = max(self.live_canvas.winfo_height(), 190)
+                self.live_canvas.create_text(cw // 2, chh // 2, text="预览已关闭\n勾选上方「开启预览」即可查看",
+                                             fill=t.get("fg_muted", "#888888"), font=("Microsoft YaHei UI", 11, "bold"), justify="center")
+                self.lbl_prev_state.config(text="预览已关闭（不影响直播）")
+                return
         t = self._theme()
         aid = (hub_st or {}).get("avatar_id") or self._selected_avatar_id() or "demo_ul_host"
         host_name = (hub_st or {}).get("host_name") or self.var_host_name.get() or "主播"
@@ -2784,6 +2831,8 @@ class LauncherApp(tk.Tk):
         self.var_ov_pos.set(bk.overlay_id_to_label("position", str(ov.get("board_position", "top-right"))))
         self.var_ov_font.set(bk.overlay_id_to_label("font", str(ov.get("font_preset", "noto_sans_sc"))))
         self.var_ov_eff.set(bk.overlay_id_to_label("effect", str(ov.get("effect_preset", "classic_dark"))))
+        if hasattr(self, "var_ov_fs"):
+            self.var_ov_fs.set(str(ov.get("font_size", 24)))
 
     def _apply_overlay_patch_async(self, patch: Dict[str, Any], apply_effect_preset: bool = False, log_prefix: str = "[字幕/字体]") -> None:
         merged = bk.save_overlay_cfg(patch, apply_effect_preset=apply_effect_preset)
@@ -2803,6 +2852,12 @@ class LauncherApp(tk.Tk):
             "font_preset": bk.overlay_label_to_id("font", self.var_ov_font.get()),
         }
         self._apply_overlay_patch_async(patch, apply_effect_preset=False)
+
+    def on_bump_sub_font(self, delta: int) -> None:
+        cur = int(bk.get_overlay_cfg(self.cfg).get("font_size", 24))
+        new = max(14, min(80, cur + int(delta)))
+        self.var_ov_fs.set(str(new))
+        self._apply_overlay_patch_async({"font_size": new}, apply_effect_preset=False, log_prefix=f"[字幕字号 {new}px，超长自动换行]")
 
     def on_save_overlay_eff_preset(self) -> None:
         eff_id = bk.overlay_label_to_id("effect", self.var_ov_eff.get())
@@ -2846,6 +2901,10 @@ class LauncherApp(tk.Tk):
         v_bgop = tk.IntVar(value=int(ov["bg_opacity"]))
         v_boff = tk.IntVar(value=int(ov["bottom_offset_pct"]))
         v_anim = tk.StringVar(value=bk.overlay_id_to_label("animation", ov["animation"]))
+        v_lines = tk.StringVar(value=str(ov.get("sub_max_lines", 3)))
+        of_map = {"paginate": "保持字号，分几屏轮播（推荐）", "shrink": "自动缩小字号塞进去"}
+        v_overflow = tk.StringVar(value=of_map.get(str(ov.get("sub_overflow", "paginate")), of_map["paginate"]))
+        v_swpct = tk.IntVar(value=int(ov.get("sub_width_pct", 90)))
         v_lic = tk.StringVar(value="")
 
         def _safe_int(var: tk.Variable, fallback: int) -> int:
@@ -2874,6 +2933,9 @@ class LauncherApp(tk.Tk):
                     "bg_opacity": _safe_int(v_bgop, 78),
                     "bottom_offset_pct": _safe_int(v_boff, 4),
                     "animation": bk.overlay_label_to_id("animation", v_anim.get()),
+                    "sub_max_lines": _safe_int(v_lines, 3),
+                    "sub_overflow": next((k for k, lbl in of_map.items() if lbl == v_overflow.get()), "paginate"),
+                    "sub_width_pct": _safe_int(v_swpct, 90),
                 }
             )
 
@@ -2943,20 +3005,49 @@ class LauncherApp(tk.Tk):
 
             bot_y = ph - max(10, int(ph * int(cfg_cur["bottom_offset_pct"]) / 100.0))
             if cfg_cur["show_subtitle"]:
-                sub_h = 44
+                # 按真实规则演示：舞台 720 宽 → 预览 300 宽，字号同比例缩放；按宽度自动换行，超行数时分屏/缩小
+                scale = pw / 720.0
+                demo = "欢迎来到直播间，今天咱们讲讲怎么识破AI换脸骗局，手机验证码绝不能告诉任何人，遇到借钱先挂断再回拨确认。"
+                max_lines = int(cfg_cur.get("sub_max_lines", 3))
+                box_w = int(pw * int(cfg_cur.get("sub_width_pct", 90)) / 100.0)
+                fs_px = max(8, int(round(cfg_cur["font_size"] * 0.82 * scale)))
+
+                def _wrap(txt: str, font) -> List[str]:
+                    lines_out, cur = [], ""
+                    for ch in txt:
+                        if draw.textlength(cur + ch, font=font) <= box_w - 16:
+                            cur += ch
+                        else:
+                            lines_out.append(cur)
+                            cur = ch
+                    if cur:
+                        lines_out.append(cur)
+                    return lines_out
+
+                f_sub = _load_pil_font(fid, fs_px)
+                lines = _wrap(demo, f_sub)
+                if cfg_cur.get("sub_overflow") == "shrink":
+                    while len(lines) > max_lines and fs_px > max(8, int(14 * scale)):
+                        fs_px -= 1
+                        f_sub = _load_pil_font(fid, fs_px)
+                        lines = _wrap(demo, f_sub)
+                page_note = ""
+                if len(lines) > max_lines:
+                    pages = (len(lines) + max_lines - 1) // max_lines
+                    page_note = f"第 1/{pages} 屏"
+                    lines = lines[:max_lines]
+                line_h = int(fs_px * 1.45)
+                sub_h = line_h * len(lines) + 14
                 sy0 = max(90, bot_y - sub_h)
+                bx0, bx1 = (pw - box_w) // 2, (pw + box_w) // 2
                 if op_alpha > 10:
                     box_rgb = (248, 250, 252) if tcol[0] < 60 and tcol[1] < 60 else (8, 12, 20)
-                    draw.rounded_rectangle((12, sy0, pw - 12, bot_y), radius=10, fill=box_rgb + (op_alpha,))
-                draw.text(
-                    (pw // 2, (sy0 + bot_y) // 2),
-                    "欢迎来到直播间，正在讲解核心要点",
-                    font=f_sub,
-                    anchor="mm",
-                    fill=tcol,
-                    stroke_width=sw,
-                    stroke_fill=scol,
-                )
+                    draw.rounded_rectangle((bx0, sy0, bx1, bot_y), radius=10, fill=box_rgb + (op_alpha,))
+                for li, ln in enumerate(lines):
+                    draw.text((pw // 2, sy0 + 7 + li * line_h + line_h // 2), ln, font=f_sub, anchor="mm",
+                              fill=tcol, stroke_width=min(sw, 2), stroke_fill=scol)
+                if page_note:
+                    draw.text((bx1 - 4, sy0 - 4), page_note, font=f_sm, anchor="rb", fill=(250, 204, 21, 255))
                 pill_anchor_y = sy0 - 8
             else:
                 pill_anchor_y = bot_y - 8
@@ -3018,7 +3109,7 @@ class LauncherApp(tk.Tk):
         grid.columnconfigure(3, weight=1)
 
         ttk.Label(grid, text="口播字号(px):", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=4)
-        sb_fs = ttk.Spinbox(grid, from_=14, to=48, textvariable=v_fsize, width=7, command=refresh_preview)
+        sb_fs = ttk.Spinbox(grid, from_=14, to=80, increment=2, textvariable=v_fsize, width=7, command=refresh_preview)
         sb_fs.grid(row=0, column=1, sticky="w", padx=6)
         ttk.Label(grid, text="章节字号(px):", style="Card.TLabel").grid(row=0, column=2, sticky="w", pady=4)
         sb_bs = ttk.Spinbox(grid, from_=11, to=26, textvariable=v_bsize, width=7, command=refresh_preview)
@@ -3058,8 +3149,21 @@ class LauncherApp(tk.Tk):
 
         ttk.Label(grid, text="字幕距底边距(%):", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=4)
         ttk.Spinbox(grid, from_=1, to=40, textvariable=v_boff, width=7, command=refresh_preview).grid(row=4, column=1, sticky="w", padx=6)
+        ttk.Label(grid, text="字幕最宽(%):", style="Card.TLabel").grid(row=4, column=2, sticky="w", pady=4)
+        ttk.Spinbox(grid, from_=60, to=98, increment=2, textvariable=v_swpct, width=7, command=refresh_preview).grid(row=4, column=3, sticky="w", padx=6)
 
-        for v in (v_tcol, v_scol, v_fsize, v_bsize, v_swidth, v_bgop, v_boff):
+        ttk.Label(grid, text="字幕最多几行:", style="Card.TLabel").grid(row=5, column=0, sticky="w", pady=4)
+        cb_ln = ttk.Combobox(grid, textvariable=v_lines, values=["1", "2", "3", "4", "5"], state="readonly", width=6)
+        cb_ln.grid(row=5, column=1, sticky="w", padx=6)
+        cb_ln.bind("<<ComboboxSelected>>", refresh_preview)
+        ttk.Label(grid, text="太长放不下时:", style="Card.TLabel").grid(row=5, column=2, sticky="w", pady=4)
+        cb_of = ttk.Combobox(grid, textvariable=v_overflow, values=list(of_map.values()), state="readonly", width=24)
+        cb_of.grid(row=5, column=3, sticky="w", padx=6)
+        cb_of.bind("<<ComboboxSelected>>", refresh_preview)
+        ttk.Label(grid, text="字号可调到 80px；调大后字幕会按屏幕宽度自动换行，超过设定行数时分屏轮播或自动缩小，不会溢出屏幕。",
+                  style="CardHint.TLabel", wraplength=470).grid(row=6, column=0, columnspan=4, sticky="w", pady=(2, 0))
+
+        for v in (v_tcol, v_scol, v_fsize, v_bsize, v_swidth, v_bgop, v_boff, v_swpct):
             v.trace_add("write", refresh_preview)
 
         btns = ttk.Frame(left, style="Card.TFrame")
@@ -3089,6 +3193,9 @@ class LauncherApp(tk.Tk):
             v_bgop.set(int(d["bg_opacity"]))
             v_boff.set(int(d["bottom_offset_pct"]))
             v_anim.set(bk.overlay_id_to_label("animation", d["animation"]))
+            v_lines.set(str(d.get("sub_max_lines", 3)))
+            v_overflow.set(of_map.get(str(d.get("sub_overflow", "paginate")), of_map["paginate"]))
+            v_swpct.set(int(d.get("sub_width_pct", 90)))
             refresh_preview()
 
         ttk.Button(btns, text="✅ 立即应用并实时生效", style="Primary.TButton", command=on_apply).pack(side="left", padx=(0, 8))
