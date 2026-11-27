@@ -138,7 +138,18 @@ DEFAULT_OVERLAY_CFG: Dict[str, Any] = {
     "bg_opacity": 78,
     "bottom_offset_pct": 4,
     "animation": "fade_up",
+    # 字幕自动换行与防溢出：字号调大后按屏幕宽度自动换行，最多显示几行；超出时分屏轮播或自动缩小
+    "sub_max_lines": 3,
+    "sub_width_pct": 90,
+    "sub_overflow": "paginate",
 }
+
+FONT_SIZE_MIN = 14
+FONT_SIZE_MAX = 80
+SUB_OVERFLOW_OPTIONS: List[Tuple[str, str]] = [
+    ("paginate", "保持字号，长句分屏轮播（推荐）"),
+    ("shrink", "自动缩小字号，塞进设定行数"),
+]
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -197,6 +208,10 @@ def sanitize_overlay_cfg(raw: Optional[Dict[str, Any]], base: Optional[Dict[str,
     if anim not in {k for k, _ in OVERLAY_ANIMATION_OPTIONS}:
         anim = "fade_up"
 
+    sub_of = str(merged.get("sub_overflow") or "paginate").strip()
+    if sub_of not in {k for k, _ in SUB_OVERFLOW_OPTIONS}:
+        sub_of = "paginate"
+
     return {
         "show_kb_board": bool(merged.get("show_kb_board", True)),
         "board_position": bpos,
@@ -208,7 +223,7 @@ def sanitize_overlay_cfg(raw: Optional[Dict[str, Any]], base: Optional[Dict[str,
         "font_css": finfo["css_family"],
         "font_license": finfo["license"],
         "effect_preset": ep,
-        "font_size": _clamp_int(merged.get("font_size"), 14, 48, 24),
+        "font_size": _clamp_int(merged.get("font_size"), FONT_SIZE_MIN, FONT_SIZE_MAX, 24),
         "board_font_size": _clamp_int(merged.get("board_font_size"), 11, 26, 14),
         "font_weight": _clamp_int(merged.get("font_weight"), 400, 900, 600),
         "text_color": _safe_hex(merged.get("text_color"), "#FFFFFF"),
@@ -217,4 +232,7 @@ def sanitize_overlay_cfg(raw: Optional[Dict[str, Any]], base: Optional[Dict[str,
         "bg_opacity": _clamp_int(merged.get("bg_opacity"), 0, 95, 78),
         "bottom_offset_pct": _clamp_int(merged.get("bottom_offset_pct"), 1, 40, 4),
         "animation": anim,
+        "sub_max_lines": _clamp_int(merged.get("sub_max_lines"), 1, 5, 3),
+        "sub_width_pct": _clamp_int(merged.get("sub_width_pct"), 60, 98, 90),
+        "sub_overflow": sub_of,
     }

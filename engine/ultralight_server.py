@@ -21,6 +21,8 @@ i5-12400F / 32GB / RTX 2080 8GB 优化要点：
   * 默认只监听 127.0.0.1（中控在本机代理 WebRTC，无需对局域网开放）；CORS 仅放行本机来源
   * 每会话一条 TTS 串行队列：句子严格按顺序播出，按标点分句流水线合成，首句更快开口
   * 打断 = 清空待渲染队列 + 音视频轨道缓冲 + 残余音频，并用“代次号”丢弃打断前仍在合成的句子
+  * 音视频共用会话时钟（画面开播为 t0），不再各自计时导致声音领先；可用 --av_offset_ms 微调
+  * 预览页（role=preview）在 OBS 已连接时只“镜像”同一路画面：不额外推理、不占名额、不抢 OBS 的说话会话
   * 帧按 --out_height 缩放后常驻内存，形象 LRU 只保留 --max_loaded_avatars 个
   * ONNX Runtime 显存池设上限（--ort_gpu_mem_mb），积压时按 --batch 批量追帧（需动态 batch 的 unet.onnx）
   * 训练在独立子进程运行；有直播画面在线时默认拒绝训练，防止显存爆满断播
@@ -299,7 +301,8 @@ class EngineRuntime:
         self.sess_lock = threading.Lock()
 
     def live_sessions(self) -> List["UltralightSession"]:
-        return [s for s in list(self.sessions.values()) if not s._quit.is_set()]
+        """在线的“真画面”会话（不含预览镜像）。"""
+        return [s for s in list(self.sessions.values()) if not s._quit.is_set() and not getattr(s, "is_mirror", False)]
 
     def get_encoder(self, asr: str):
         with self._load_lock:
@@ -474,23 +477,35 @@ class EngineRuntime:
 # WebRTC 音视频轨道与渲染会话
 # ---------------------------------------------------------------------------
 class UltralightStreamTrack(MediaStreamTrack):
-    def __init__(self, session: "UltralightSession", kind: str, fps: int, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, session: Any, kind: str, fps: int, loop: asyncio.AbstractEventLoop, maxsize: int = 120,
+                 drop_oldest: bool = False) -> None:
         super().__init__()
         self.session = session
         self.kind = kind
         self.fps = fps
         self.video_ptime = 1.0 / max(1, fps)
-        self._queue: queue.Queue = queue.Queue(maxsize=120)
+        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
+        self._drop_oldest = drop_oldest   # 预览镜像：满了丢最旧的，保持低延迟且音视频延迟一致
         self._loop = loop
         self._evt = asyncio.Event()
-        self._start: Optional[float] = None
         self._timestamp: int = 0
         self._frame_count: int = 0
 
     def put(self, item: Tuple[Any, Optional[dict]], timeout: float = 1.0) -> bool:
         """渲染线程投递帧后唤醒事件循环（替代每 4ms 轮询一次）。"""
         try:
-            self._queue.put(item, timeout=timeout)
+            if self._drop_oldest:
+                while True:
+                    try:
+                        self._queue.put_nowait(item)
+                        break
+                    except queue.Full:
+                        try:
+                            self._queue.get_nowait()
+                        except queue.Empty:
+                            pass
+            else:
+                self._queue.put(item, timeout=timeout)
         except queue.Full:
             return False
         try:
@@ -507,20 +522,33 @@ class UltralightStreamTrack(MediaStreamTrack):
                 break
 
     async def next_timestamp(self) -> Tuple[int, fractions.Fraction]:
+        """音视频共用会话时钟：第 k 个视频帧在 t0+k×帧间隔 发出，第 j 个音频包在 t0+j×20ms(+偏移) 发出。
+
+        原来两条轨道各自从“自己第一次被拉取”开始计时：OBS/浏览器往往先拉音频、后拉画面，
+        导致音频永久领先约一个前瞻缓冲（~250ms），出现“声音停了嘴还在动”。
+        """
         if self.readyState != "live":
             raise Exception("track stopped")
-        ptime = self.video_ptime if self.kind == "video" else AUDIO_PTIME
-        step = int(ptime * (VIDEO_CLOCK_RATE if self.kind == "video" else SAMPLE_RATE))
-        if self._start is None:
-            self._start = time.time()
-            self._timestamp = 0
-        else:
-            self._timestamp += step
-            self._frame_count += 1
-            wait = self._start + self._frame_count * ptime - time.time()
-            if wait > 0:
-                await asyncio.sleep(wait)
-        return self._timestamp, (VIDEO_TIME_BASE if self.kind == "video" else AUDIO_TIME_BASE)
+        is_video = self.kind == "video"
+        ptime = self.video_ptime if is_video else AUDIO_PTIME
+        step = int(round(ptime * (VIDEO_CLOCK_RATE if is_video else SAMPLE_RATE)))
+        t0 = self.session.clock_t0(self.kind)
+        while t0 is None:   # 音频等画面开播后一起计时（纯音频客户端 2 秒后兜底自行开始）
+            await asyncio.sleep(0.01)
+            if self.readyState != "live":
+                raise Exception("track stopped")
+            t0 = self.session.clock_t0(self.kind)
+        idx = self._frame_count
+        self._frame_count += 1
+        self._timestamp = idx * step
+        target = t0 + idx * ptime + (0.0 if is_video else self.session.av_offset)
+        wait = target - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        elif is_video and -wait > 2.0:
+            # 卡顿超过 2 秒：音视频一起整体顺延，不再狂追，也不会把两者拉开
+            self.session.rebase_clock(-wait)
+        return self._timestamp, (VIDEO_TIME_BASE if is_video else AUDIO_TIME_BASE)
 
     async def recv(self):
         self.session.ensure_started(self)
@@ -531,6 +559,8 @@ class UltralightStreamTrack(MediaStreamTrack):
             except queue.Empty:
                 if self.readyState != "live":
                     raise Exception("track stopped")
+                if self.session._quit.is_set():
+                    raise Exception("session closed")
                 self._evt.clear()
                 if not self._queue.empty():
                     continue
@@ -551,11 +581,39 @@ class UltralightStreamTrack(MediaStreamTrack):
         self.session.on_track_stop(self)
 
 
-class UltralightSession:
+class _SharedClock:
+    """音视频共用会话时钟（只在事件循环线程读写）：画面开始拉流为 t0，音频等画面一起计时。"""
+    _clock_t0: Optional[float] = None
+    _audio_wait_since: Optional[float] = None
+    av_offset: float = 0.0
+
+    def clock_t0(self, kind: str) -> Optional[float]:
+        if self._clock_t0 is None:
+            now = time.time()
+            if kind == "video":
+                self._clock_t0 = now
+            elif self._audio_wait_since is None:
+                self._audio_wait_since = now
+            elif now - self._audio_wait_since > 2.0:
+                self._clock_t0 = now
+        return self._clock_t0
+
+    def rebase_clock(self, lag_sec: float) -> None:
+        if self._clock_t0 is not None and lag_sec > 0:
+            self._clock_t0 += lag_sec
+
+
+class UltralightSession(_SharedClock):
+    is_mirror = False
+
     def __init__(self, runtime: EngineRuntime, sessionid: str, avatar: LoadedAvatar, edge_voice: str,
-                 loop: asyncio.AbstractEventLoop) -> None:
+                 loop: asyncio.AbstractEventLoop, role: str = "main") -> None:
         self.runtime = runtime
         self.sessionid = sessionid
+        self.role = role            # main=OBS 正式画面；preview=预览页（无 OBS 时临时当主画面）
+        self.pc: Any = None
+        self._mirrors: List["MirrorSession"] = []
+        self._mirror_lock = threading.Lock()
         self.avatar = avatar
         self.edge_voice = edge_voice
         self._loop = loop
@@ -582,6 +640,11 @@ class UltralightSession:
         self._tts_busy = False
         self._tts_task = loop.create_task(self._speech_worker())
 
+        # 音视频共用时钟（只在事件循环线程读写）
+        self._clock_t0: Optional[float] = None
+        self._audio_wait_since: Optional[float] = None
+        self.av_offset = max(-0.5, min(1.0, float(getattr(runtime.opt, "av_offset_ms", 0) or 0) / 1000.0))
+
     # ---------------- 生命周期
     def ensure_started(self, track: UltralightStreamTrack) -> None:
         self._started_tracks.add(track)
@@ -601,6 +664,22 @@ class UltralightSession:
             self._loop.call_soon_threadsafe(self._tts_task.cancel)
         except RuntimeError:
             pass
+        for m in self.mirrors():
+            m.close()
+
+    # ---------------- 预览镜像（共享同一路画面，不额外推理）
+    def mirrors(self) -> List["MirrorSession"]:
+        with self._mirror_lock:
+            return list(self._mirrors)
+
+    def add_mirror(self, m: "MirrorSession") -> None:
+        with self._mirror_lock:
+            self._mirrors.append(m)
+
+    def remove_mirror(self, m: "MirrorSession") -> None:
+        with self._mirror_lock:
+            if m in self._mirrors:
+                self._mirrors.remove(m)
 
     # ---------------- 状态
     def is_speaking(self) -> bool:
@@ -712,6 +791,8 @@ class UltralightSession:
     # ---------------- 渲染
     def _push_video(self, bgr: np.ndarray) -> None:
         self.video_track.put((av.VideoFrame.from_ndarray(bgr, format="bgr24"), None), timeout=1.0)
+        for m in self.mirrors():
+            m.feed_video(bgr)
 
     def _push_audio_slice(self, pcm_slice: np.ndarray, eventpoint: Optional[dict]) -> None:
         if pcm_slice.shape[0] > 0:
@@ -720,9 +801,12 @@ class UltralightSession:
         while self._audio_accum.shape[0] >= AUDIO_CHUNK_SAMPLES:
             chunk = self._audio_accum[:AUDIO_CHUNK_SAMPLES]
             self._audio_accum = self._audio_accum[AUDIO_CHUNK_SAMPLES:]
+            raw = chunk.tobytes()
             af = av.AudioFrame(format="s16", layout="mono", samples=AUDIO_CHUNK_SAMPLES)
-            af.planes[0].update(chunk.tobytes())
+            af.planes[0].update(raw)
             af.sample_rate = SAMPLE_RATE
+            for m in self.mirrors():
+                m.feed_audio(raw)
             ev = None
             if eventpoint:
                 if eventpoint.get("status") == "start" and first_packet:
@@ -738,6 +822,8 @@ class UltralightSession:
         self.video_track.clear()
         self.audio_track.clear()
         self._audio_accum = np.zeros(0, dtype=np.int16)
+        for m in self.mirrors():
+            m.flush()
 
     def _render_loop(self) -> None:
         samples_per_frame = SAMPLE_RATE // self.avatar.fps
@@ -783,6 +869,65 @@ class UltralightSession:
             dt = time.perf_counter() - t0
             if dt < frame_interval * 0.5 and self.video_track._queue.qsize() >= 3:
                 time.sleep(min(0.01, frame_interval * 0.4))
+
+
+class MirrorSession(_SharedClock):
+    """预览镜像：复用主画面（OBS）已渲染好的音视频帧，只多一份视频编码，不再做口型推理、
+    不占 --max_session 名额，也不会把主播说话的会话从 OBS 抢走。"""
+
+    is_mirror = True
+    role = "preview"
+
+    def __init__(self, master: UltralightSession, sessionid: str, loop: asyncio.AbstractEventLoop) -> None:
+        self.master = master
+        self.runtime = master.runtime
+        self.sessionid = sessionid
+        self.avatar = master.avatar
+        self.pc: Any = None
+        self._quit = threading.Event()
+        self._started_tracks: set = set()
+        self.av_offset = master.av_offset
+        # 两条轨道缓冲时长一致（约 0.5 秒）：视频 12 帧 ≈ 音频 24 包，保证预览里音画同步
+        n_video = max(6, int(round(0.48 * self.avatar.fps)))
+        self.video_track = UltralightStreamTrack(self, "video", self.avatar.fps, loop, maxsize=n_video, drop_oldest=True)
+        self.audio_track = UltralightStreamTrack(self, "audio", self.avatar.fps, loop,
+                                                 maxsize=int(round(n_video / self.avatar.fps / AUDIO_PTIME)), drop_oldest=True)
+        master.add_mirror(self)
+
+    def ensure_started(self, track: UltralightStreamTrack) -> None:
+        self._started_tracks.add(track)
+
+    def on_track_stop(self, track: UltralightStreamTrack) -> None:
+        self._started_tracks.discard(track)
+        if not self._started_tracks:
+            self.close()
+
+    def close(self) -> None:
+        if not self._quit.is_set():
+            self._quit.set()
+            self.master.remove_mirror(self)
+
+    def on_event(self, ev: dict) -> None:
+        pass
+
+    def is_speaking(self) -> bool:
+        return self.master.is_speaking()
+
+    def feed_video(self, bgr: np.ndarray) -> None:
+        if not self._quit.is_set():
+            self.video_track.put((av.VideoFrame.from_ndarray(bgr, format="bgr24"), None))
+
+    def feed_audio(self, raw: bytes) -> None:
+        if self._quit.is_set():
+            return
+        af = av.AudioFrame(format="s16", layout="mono", samples=AUDIO_CHUNK_SAMPLES)
+        af.planes[0].update(raw)
+        af.sample_rate = SAMPLE_RATE
+        self.audio_track.put((af, None))
+
+    def flush(self) -> None:
+        self.video_track.clear()
+        self.audio_track.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -932,37 +1077,64 @@ def create_app(runtime: EngineRuntime) -> web.Application:
             "backend": runtime.opt.backend,
             "default_avatar": runtime.opt.avatar_id,
             "active_sessions": len(runtime.live_sessions()),
+            "preview_mirrors": sum(1 for x in runtime.sessions.values() if getattr(x, "is_mirror", False)),
             "max_session": runtime.opt.max_session,
             "loaded_avatars": list(runtime.avatars.keys()),
             "frame_cache_mb": round(sum(a.memory_mb() for a in runtime.avatars.values()), 1),
             "out_height": runtime.opt.out_height,
             "batch": runtime.opt.batch,
+            "av_offset_ms": runtime.opt.av_offset_ms,
         })
 
     async def offer(request):
         params = await request.json()
         avatar_id = str(params.get("avatar") or runtime.opt.avatar_id).strip()
         edge_voice = str(params.get("refaudio") or runtime.opt.voice or "zh-CN-XiaoxiaoNeural").strip()
+        role = "preview" if str(params.get("role") or "").lower() == "preview" else "main"
+        loop = asyncio.get_running_loop()
 
         with runtime.sess_lock:
-            if len(runtime.sessions) >= runtime.opt.max_session:
-                # 先清理已关闭的僵尸连接
-                for sid_old in [sid for sid, s in runtime.sessions.items() if s._quit.is_set()]:
-                    runtime.sessions.pop(sid_old, None)
-                if len(runtime.sessions) >= runtime.opt.max_session:
-                    return json_err("Maximum session reached", code=-1)
+            # 先清理已关闭的僵尸连接
+            for sid_old in [sid for sid, s in runtime.sessions.items() if s._quit.is_set()]:
+                runtime.sessions.pop(sid_old, None)
+            masters = [s for s in runtime.sessions.values() if not s.is_mirror]
+            main_live = next((s for s in masters if s.role == "main"), None)
+            preview_master = next((s for s in masters if s.role == "preview"), None)
 
-        try:
-            avatar = await asyncio.to_thread(runtime.load_avatar, avatar_id)
-        except Exception as exc:
-            return json_err(f"加载形象 [{avatar_id}] 失败: {exc}")
+        session: Any = None
+        if role == "preview" and (main_live or preview_master):
+            # 已有画面在推（通常是 OBS）：预览直接共享这一路，不额外推理、不占名额
+            src = main_live or preview_master
+            if sum(1 for s in runtime.sessions.values() if s.is_mirror) >= int(runtime.opt.max_preview):
+                return json_err("预览窗口开太多了，请先关掉其他预览页")
+            session = MirrorSession(src, uuid.uuid4().hex[:12], loop)
+        else:
+            if role == "main" and preview_master is not None and len(masters) >= runtime.opt.max_session:
+                # OBS 优先：临时当主画面的预览页让出名额，它会自动重连为镜像
+                logger.info(f"OBS 接入，预览会话 {preview_master.sessionid} 让出画面名额并改为共享模式")
+                preview_master.close()
+                if preview_master.pc is not None:
+                    try:
+                        await preview_master.pc.close()
+                    except Exception:
+                        pass
+                with runtime.sess_lock:
+                    runtime.sessions.pop(preview_master.sessionid, None)
+                masters = [s for s in masters if s is not preview_master]
+            if len(masters) >= runtime.opt.max_session:
+                return json_err("Maximum session reached", code=-1)
+            try:
+                avatar = await asyncio.to_thread(runtime.load_avatar, avatar_id)
+            except Exception as exc:
+                return json_err(f"加载形象 [{avatar_id}] 失败: {exc}")
+            session = UltralightSession(runtime, uuid.uuid4().hex[:12], avatar, edge_voice, loop, role=role)
 
-        sid = uuid.uuid4().hex[:12]
-        session = UltralightSession(runtime, sid, avatar, edge_voice, asyncio.get_running_loop())
+        sid = session.sessionid
         with runtime.sess_lock:
             runtime.sessions[sid] = session
 
         pc = RTCPeerConnection()
+        session.pc = pc
         runtime.pcs.add(pc)
 
         @pc.on("connectionstatechange")
@@ -985,12 +1157,19 @@ def create_app(runtime: EngineRuntime) -> web.Application:
 
         return web.Response(
             content_type="application/json",
-            text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type, "sessionid": sid}),
+            text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type, "sessionid": sid,
+                             "role": session.role, "mirror": bool(session.is_mirror),
+                             "master_sessionid": session.master.sessionid if session.is_mirror else sid}),
         )
+
+    def _speech_session(sid: str):
+        """说话类接口：传进来的若是预览镜像 ID，转给它镜像的主画面，保证 OBS 一定能说话。"""
+        s = runtime.sessions.get(sid)
+        return s.master if (s is not None and s.is_mirror) else s
 
     async def human(request):
         params = await request.json()
-        session = runtime.sessions.get(str(params.get("sessionid") or ""))
+        session = _speech_session(str(params.get("sessionid") or ""))
         if not session:
             return json_err("session not found")
         if params.get("interrupt"):
@@ -1005,7 +1184,7 @@ def create_app(runtime: EngineRuntime) -> web.Application:
 
     async def humanaudio(request):
         form = await request.post()
-        session = runtime.sessions.get(str(form.get("sessionid") or ""))
+        session = _speech_session(str(form.get("sessionid") or ""))
         if not session:
             return json_err("session not found")
         raw = form["file"].file.read()
@@ -1015,7 +1194,7 @@ def create_app(runtime: EngineRuntime) -> web.Application:
 
     async def interrupt_talk(request):
         params = await request.json()
-        session = runtime.sessions.get(str(params.get("sessionid") or ""))
+        session = _speech_session(str(params.get("sessionid") or ""))
         if not session:
             return json_err("session not found")
         session.flush_talk()
@@ -1023,7 +1202,7 @@ def create_app(runtime: EngineRuntime) -> web.Application:
 
     async def is_speaking(request):
         params = await request.json()
-        session = runtime.sessions.get(str(params.get("sessionid") or ""))
+        session = _speech_session(str(params.get("sessionid") or ""))
         if not session:
             return json_err("session not found")
         return json_ok(data=session.is_speaking())
@@ -1136,6 +1315,8 @@ def create_app(runtime: EngineRuntime) -> web.Application:
                 "fps": s.avatar.fps,
                 "speaking": s.is_speaking(),
                 "live": not s._quit.is_set(),
+                "role": s.role,
+                "mirror": bool(s.is_mirror),
             })
         return json_ok({"sessions": info})
 
@@ -1197,6 +1378,10 @@ def main() -> None:
     ap.add_argument("--max_loaded_avatars", type=int, default=_env_int("UL_MAX_LOADED", 2), help="LRU 常驻形象数")
     ap.add_argument("--ort_gpu_mem_mb", type=int, default=_env_int("UL_ORT_GPU_MB", 2048),
                     help="ONNX Runtime 显存池上限(MB)，0=不限制")
+    ap.add_argument("--max_preview", type=int, default=_env_int("UL_MAX_PREVIEW", 1),
+                    help="最多几个预览窗口共享 OBS 画面（每个多一份视频编码，CPU 吃紧时调 1）")
+    ap.add_argument("--av_offset_ms", type=int, default=_env_int("UL_AV_OFFSET_MS", 0),
+                    help="音画微调(ms)：正数=声音延后（嘴型比声音慢时调大），负数=声音提前；范围 -500~1000")
     opt = ap.parse_args()
     if opt.host not in ("127.0.0.1", "localhost"):
         logger.warning(f"引擎监听 {opt.host}：同一局域网内的设备都能控制数字人和提交训练任务，请确认网络可信！")
@@ -1214,7 +1399,7 @@ def main() -> None:
     app = create_app(runtime)
     logger.info(f"Ultralight-Digital-Human 引擎启动于 http://{opt.host}:{opt.listenport} "
                 f"(asr={opt.asr}, backend={opt.backend}, out_height={opt.out_height}, batch={opt.batch}, "
-                f"max_session={opt.max_session}, ort_gpu_mem={opt.ort_gpu_mem_mb}MB)")
+                f"max_session={opt.max_session}, ort_gpu_mem={opt.ort_gpu_mem_mb}MB, av_offset={opt.av_offset_ms}ms)")
     web.run_app(app, host=opt.host, port=opt.listenport, print=None)
 
 

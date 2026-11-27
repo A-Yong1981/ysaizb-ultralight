@@ -262,7 +262,11 @@ def test_engine_security_and_perf_contracts():
     assert "OrderedDict" in srv and "_evict_lru" in srv and "out_height" in srv
     assert "subprocess.Popen" in srv and "code=409" in srv
     assert '"dynamic_axes"' in pipe and "GradScaler" in pipe and "val_ratio" in pipe and "pth_trusted" in pipe
-    for flag in ("--host %UL_HOST%", "--batch %UL_BATCH%", "--out_height %UL_OUT_HEIGHT%", "--ort_gpu_mem_mb %UL_ORT_GPU_MB%"):
+    # 音画同步：两条轨道必须共用会话时钟（禁止各自 self._start 计时导致声音领先画面）
+    assert "def clock_t0" in srv and "self.session.clock_t0(self.kind)" in srv and not re.search(r"self\._start\b", srv)
+    assert "av_offset_ms" in srv
+    for flag in ("--host %UL_HOST%", "--batch %UL_BATCH%", "--out_height %UL_OUT_HEIGHT%", "--ort_gpu_mem_mb %UL_ORT_GPU_MB%",
+                 "--av_offset_ms %UL_AV_OFFSET_MS%"):
         assert flag in run_bat, flag
     env = config_guide.parse_env_bat(ROOT_DIR / "env.bat")
     assert env.get("UL_MAX_SESSION") == "1" and env.get("UL_HOST") == "127.0.0.1"
@@ -281,11 +285,34 @@ def test_obs_presets_25fps():
     print(f"[PASS] test_obs_presets_25fps ({len(inis)} presets)")
 
 
+def test_subtitle_wrap_and_preview_switch():
+    """字幕：字号 14~80，强制换行、最多 N 行、分屏/缩小防溢出；预览：可开关，预览页共享 OBS 画面不抢说话会话。"""
+    import overlay_presets as op
+
+    c = op.sanitize_overlay_cfg({"font_size": 999, "sub_max_lines": 9, "sub_overflow": "bad", "sub_width_pct": 10})
+    assert c["font_size"] == 80 and c["sub_max_lines"] == 5 and c["sub_overflow"] == "paginate" and c["sub_width_pct"] == 60
+    ov = (HUB_DIR / "static" / "overlay.html").read_text(encoding="utf-8")
+    assert "overflow-wrap: anywhere" in ov and "function layoutSubtitle" in ov and "function splitSubPages" in ov
+    assert 'role: preview ? "preview" : "main"' in ov and "stopPreviewStream" in ov and "/api/preview" in ov
+    idx = (HUB_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="preview-switch"' in idx and "setPreviewEnabled" in idx and "bumpSubFont" in idx and 'id="ov-max-lines"' in idx
+    srv = (HUB_DIR / "server.py").read_text(encoding="utf-8")
+    assert '@app.post("/api/preview")' in srv and 'data.get("mirror")' in srv and "preview_sessions" in srv
+    eng = (ROOT_DIR / "engine" / "ultralight_server.py").read_text(encoding="utf-8")
+    assert "class MirrorSession" in eng and "_speech_session" in eng and "max_preview" in eng
+    app_txt = (ROOT_DIR / "launcher" / "app.py").read_text(encoding="utf-8")
+    assert "on_toggle_preview" in app_txt and "on_bump_sub_font" in app_txt and "sub_max_lines" in app_txt
+    keys = {it["key"] for it in config_guide.GUIDE_ITEMS}
+    assert {"ui.preview_enabled", "overlay.font_size", "overlay.sub_max_lines", "overlay.sub_overflow", "env.UL_MAX_PREVIEW"} <= keys
+    print("[PASS] test_subtitle_wrap_and_preview_switch")
+
+
 if __name__ == "__main__":
     test_topic_router_viewer_requests()
     test_config_guide_wizard_presets_doctor()
     test_engine_security_and_perf_contracts()
     test_obs_presets_25fps()
+    test_subtitle_wrap_and_preview_switch()
     test_u_port_and_obs_isolation()
     test_p01_bat_pure_ascii_crlf()
     test_p04_requirements_hygiene()

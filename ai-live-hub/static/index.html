@@ -217,6 +217,9 @@
     @media (prefers-reduced-motion: reduce) { .dot-warn, .dot-error { animation: none; } }
 
     /* 主题点播 + 傻瓜配置向导 */
+    .pv-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; cursor: pointer; margin-left: 8px; }
+    .pv-switch input { width: 34px; height: 18px; accent-color: var(--accent); }
+    .pv-state { font-size: 12px; color: var(--muted); margin-top: 6px; }
     .tp-now { padding: 10px 12px; border-radius: 12px; background: var(--soft); border: 1px solid var(--border); }
     .tp-now.on { background: var(--accent-soft); border-color: #b9dcd2; }
     .tp-list { max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
@@ -520,11 +523,12 @@
       <div class="panel">
         <h3>
           <span>直播画面</span>
-          <select aria-label="预览比例" id="preview-ratio" onchange="sizePreview()"><option value="auto">跟随平台</option><option value="portrait">9:16 竖屏</option><option value="landscape">16:9 横屏</option></select><button class="sec" id="preview-btn" onclick="togglePreview()">在本页预览</button>
+          <select aria-label="预览比例" id="preview-ratio" onchange="sizePreview()"><option value="auto">跟随平台</option><option value="portrait">9:16 竖屏</option><option value="landscape">16:9 横屏</option></select><label class="pv-switch" title="开启后可在本页看到和 OBS 一样的直播画面；关闭后所有预览页自动断开，省 CPU"><input type="checkbox" id="preview-switch" onchange="setPreviewEnabled(this.checked)" /> 直播画面预览</label>
         </h3>
+        <div class="pv-state" id="preview-state"></div>
         <div id="preview-box" class="preview-box">
-          还没打开 OBS 时，点右上角「在本页预览」就能看到主播画面，讲解会自动开始。<br />
-          正式开播请用 OBS 浏览器源（地址在下方「高级功能 → OBS 设置」），同时把这里的预览关掉。
+          预览已关闭。打开右上角「直播画面预览」开关就能看到主播画面。<br />
+          OBS 已开播时，预览会共享 OBS 同一路画面，不影响正式直播；没开 OBS 时，预览会临时当主画面用来测试。
         </div>
       </div>
 
@@ -636,8 +640,27 @@
               </label>
             </div>
             <div class="ov-grid">
-              <label class="ov-field">口播字号(14-48px)
-                <input type="number" id="ov-font-size" min="14" max="48" value="24" oninput="refreshOverlayMiniPreview()">
+              <label class="ov-field">口播字号(14-80px，调大会自动换行)
+                <span class="row" style="gap:4px;">
+                  <button type="button" class="sec" onclick="bumpSubFont(-4)" title="字幕变小">A−</button>
+                  <input type="number" id="ov-font-size" min="14" max="80" value="24" style="max-width:70px;" oninput="refreshOverlayMiniPreview()" onchange="saveOverlayCfg(false)">
+                  <button type="button" class="sec" onclick="bumpSubFont(4)" title="字幕变大">A＋</button>
+                </span>
+              </label>
+              <label class="ov-field">字幕最多几行
+                <select id="ov-max-lines" onchange="saveOverlayCfg(false)">
+                  <option value="1">1 行</option><option value="2">2 行</option><option value="3" selected>3 行（推荐）</option>
+                  <option value="4">4 行</option><option value="5">5 行</option>
+                </select>
+              </label>
+              <label class="ov-field">一句话太长放不下时
+                <select id="ov-overflow" onchange="saveOverlayCfg(false)">
+                  <option value="paginate">保持字号，分几屏轮播（推荐）</option>
+                  <option value="shrink">自动缩小字号塞进去</option>
+                </select>
+              </label>
+              <label class="ov-field">字幕最宽占屏幕(60-98%)
+                <input type="number" id="ov-sub-width" min="60" max="98" step="2" value="90" oninput="refreshOverlayMiniPreview()" onchange="saveOverlayCfg(false)">
               </label>
               <label class="ov-field">章节卡字号(11-26px)
                 <input type="number" id="ov-board-size" min="11" max="26" value="14" oninput="refreshOverlayMiniPreview()">
@@ -815,6 +838,7 @@
     function applyStatus(st) {
       if (st.background) renderBgPanel(st.background);
       if (st.topic) renderTopicStatus(st.topic);
+      if (st.preview) applyPreviewState(st.preview);
       lastStatus = st;
       const pLt = document.getElementById("p-lt");
       pLt.textContent = st.lt_online ? "数字人：已启动" : "数字人：未启动";
@@ -1031,19 +1055,32 @@
     window.addEventListener("scroll", sizePreview, {passive: true});
     new ResizeObserver(sizePreview).observe(document.getElementById("preview-box"));
 
-    function togglePreview() {
-      previewOn = !previewOn;
+    const PREVIEW_OFF_HTML = "预览已关闭。打开右上角「直播画面预览」开关就能看到主播画面。<br>OBS 已开播时，预览会共享 OBS 同一路画面，不影响正式直播；没开 OBS 时，预览会临时当主画面用来测试。";
+    function renderPreview(on) {
+      if (on === previewOn) return;
+      previewOn = on;
       const box = document.getElementById("preview-box");
       box.classList.toggle("open", previewOn);
       sizePreview();
-      if (previewOn) {
-        box.innerHTML = `<iframe title="直播预览" src="/stage?layer=all&muted=0&preview=1"></iframe>`;
-        document.getElementById("preview-btn").textContent = "关闭预览";
-      } else {
-        box.innerHTML = "预览已关闭。正式开播请用 OBS 浏览器源（地址在「高级功能 → OBS 设置」）。";
-        document.getElementById("preview-btn").textContent = "在本页预览";
-      }
+      box.innerHTML = previewOn
+        ? `<iframe title="直播预览" src="/stage?layer=all&muted=0&preview=1"></iframe>`
+        : PREVIEW_OFF_HTML;
     }
+    function applyPreviewState(p) {
+      if (!p) return;
+      const sw = document.getElementById("preview-switch");
+      if (sw && document.activeElement !== sw) sw.checked = !!p.enabled;
+      renderPreview(!!p.enabled);
+      const st = document.getElementById("preview-state");
+      if (st) st.textContent = !p.enabled ? "" : (p.obs_main
+        ? `预览中 · 共享 OBS 画面（${p.connected || 0} 个预览窗口，只多一份视频编码）`
+        : `预览中 · OBS 还没连接，预览暂时当主画面（OBS 一连上会自动让给 OBS）`);
+    }
+    async function setPreviewEnabled(on) {
+      const d = await (await postJson("/api/preview", { enabled: !!on })).json();
+      applyPreviewState(d);
+    }
+    function togglePreview() { setPreviewEnabled(!previewOn); }   // 兼容旧入口
 
     async function postJson(url, body) {
       return fetch(url, {
@@ -1421,7 +1458,8 @@
       show_kb_board: true, board_position: "top-right", show_info_card: true, show_badge: true,
       show_subtitle: true, show_question_pill: true, font_preset: "noto_sans_sc", effect_preset: "classic_dark",
       font_size: 24, board_font_size: 14, font_weight: 600, text_color: "#FFFFFF", stroke_color: "#000000",
-      stroke_width: 2, bg_opacity: 78, bottom_offset_pct: 4, animation: "fade_up"
+      stroke_width: 2, bg_opacity: 78, bottom_offset_pct: 4, animation: "fade_up",
+      sub_max_lines: 3, sub_width_pct: 90, sub_overflow: "paginate"
     };
 
     function _ovReadForm() {
@@ -1434,7 +1472,7 @@
         show_question_pill: !!document.getElementById("ov-show-pill")?.checked,
         font_preset: document.getElementById("ov-font")?.value || "noto_sans_sc",
         effect_preset: document.getElementById("ov-effect")?.value || "classic_dark",
-        font_size: parseInt(document.getElementById("ov-font-size")?.value || "24", 10) || 24,
+        font_size: Math.max(14, Math.min(80, parseInt(document.getElementById("ov-font-size")?.value || "24", 10) || 24)),
         board_font_size: parseInt(document.getElementById("ov-board-size")?.value || "14", 10) || 14,
         font_weight: parseInt(document.getElementById("ov-weight")?.value || "600", 10) || 600,
         text_color: document.getElementById("ov-text-color")?.value || "#FFFFFF",
@@ -1442,8 +1480,16 @@
         stroke_width: Math.max(0, Math.min(6, parseInt(document.getElementById("ov-stroke-w")?.value || "2", 10) || 0)),
         bg_opacity: Math.max(0, Math.min(95, parseInt(document.getElementById("ov-bg-op")?.value || "78", 10) || 0)),
         bottom_offset_pct: Math.max(1, Math.min(40, parseInt(document.getElementById("ov-bot-off")?.value || "4", 10) || 4)),
-        animation: document.getElementById("ov-anim")?.value || "fade_up"
+        animation: document.getElementById("ov-anim")?.value || "fade_up",
+        sub_max_lines: Math.max(1, Math.min(5, parseInt(document.getElementById("ov-max-lines")?.value || "3", 10) || 3)),
+        sub_width_pct: Math.max(60, Math.min(98, parseInt(document.getElementById("ov-sub-width")?.value || "90", 10) || 90)),
+        sub_overflow: document.getElementById("ov-overflow")?.value || "paginate"
       };
+    }
+    function bumpSubFont(delta) {
+      const el = document.getElementById("ov-font-size");
+      el.value = String(Math.max(14, Math.min(80, (parseInt(el.value || "24", 10) || 24) + delta)));
+      saveOverlayCfg(false);
     }
 
     function refreshOverlayMiniPreview() {
@@ -1467,7 +1513,13 @@
       if (subWrap) subWrap.style.display = ov.show_subtitle ? "flex" : "none";
       sub.style.color = ov.text_color;
       sub.style.fontWeight = String(ov.font_weight);
-      sub.style.fontSize = Math.max(13, Math.min(24, Math.round(ov.font_size * 0.72))) + "px";
+      // 小预览按真实比例缩放字号，并演示自动换行（不截断、不溢出）
+      sub.style.fontSize = Math.max(9, Math.round(ov.font_size * 0.5)) + "px";
+      sub.style.maxWidth = ov.sub_width_pct + "%";
+      sub.style.whiteSpace = "normal";
+      sub.style.overflowWrap = "anywhere";
+      sub.style.wordBreak = "break-word";
+      sub.style.lineHeight = "1.45";
       sub.style.webkitTextStroke = ov.stroke_width > 0 ? `${ov.stroke_width}px ${ov.stroke_color}` : "0px transparent";
       const isWarm = ov.text_color.toUpperCase() === "#0F172A";
       const alpha = (ov.bg_opacity / 100).toFixed(2);
@@ -1494,6 +1546,9 @@
       if (el("ov-stroke-w")) el("ov-stroke-w").value = String(ov.stroke_width ?? 2);
       if (el("ov-bg-op")) el("ov-bg-op").value = String(ov.bg_opacity ?? 78);
       if (el("ov-bot-off")) el("ov-bot-off").value = String(ov.bottom_offset_pct ?? 4);
+      if (el("ov-max-lines")) el("ov-max-lines").value = String(ov.sub_max_lines ?? 3);
+      if (el("ov-overflow")) el("ov-overflow").value = ov.sub_overflow || "paginate";
+      if (el("ov-sub-width")) el("ov-sub-width").value = String(ov.sub_width_pct ?? 90);
       refreshOverlayMiniPreview();
     }
 
@@ -1667,6 +1722,7 @@
       else if (data.type === "log") appendLog(data);
       else if (data.type === "health") renderHealth(data);
       else if (data.type === "topic_update") renderTopicStatus(data);
+      else if (data.type === "preview_update") applyPreviewState(data);
     };
 
     // ---------------- 系统健康诊断 ----------------

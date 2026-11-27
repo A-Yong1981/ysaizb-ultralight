@@ -175,6 +175,11 @@ def test_hub_fastapi_endpoints():
         assert miss["is_request"] is False
         gd = client.get("/api/guide").json()
         assert gd["code"] == 0 and len(gd["items"]) >= 20 and len(gd["presets"]) >= 5 and gd["doctor"]
+        pv = client.get("/api/preview").json()
+        assert pv["code"] == 0 and "enabled" in pv
+        pv_off = client.post("/api/preview", json={"enabled": False}).json()
+        assert pv_off["enabled"] is False
+        client.post("/api/preview", json={"enabled": pv["enabled"]})
         bad = client.post("/api/guide/apply", json={"patch": {"config": {"x": 1}}}).json()
         assert bad["code"] == 1, "guide/apply must reject arbitrary patches"
         st = client.get("/api/status").json()
@@ -226,7 +231,7 @@ def test_launcher_backend_config():
     p_ckpt = bk.rule_recommend_ultralight_config("已有外部权重封装", {"ok": True, "has_audio": False, "frames": 250, "duration_sec": 10.0}, has_ckpt=True)
     assert p_ckpt["mode"] == "封装外部权重 (.pth/.onnx)" and p_ckpt["epochs"] == 0 and p_ckpt["can_train"] is True
     ov_clean = bk.sanitize_overlay_cfg({"font_size": 999, "board_position": "bad", "text_color": "invalid", "font_preset": "lxgw_wenkai"})
-    assert ov_clean["font_size"] == 48 and ov_clean["board_position"] == "top-right" and ov_clean["text_color"] == "#FFFFFF" and ov_clean["font_preset"] == "lxgw_wenkai"
+    assert ov_clean["font_size"] == 80 and ov_clean["board_position"] == "top-right" and ov_clean["text_color"] == "#FFFFFF" and ov_clean["font_preset"] == "lxgw_wenkai"
     print(f"[PASS] test_launcher_backend_config (assets={len(assets)}, ai_kb_rules=ok)")
 
 
