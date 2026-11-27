@@ -249,7 +249,7 @@
 <body>
   <header>
     <div>
-      <div class="brand">泳昇 Ultralight 数字人直播平台<small>网页控制台 · 多主播 · 多平台 · 观众点播</small></div>
+      <div class="brand">泳昇 Ultralight 数字人直播平台<small>网页控制台 <span id="app-ver"></span> · 多主播 · 多平台 · 观众点播</small></div>
       <div class="subpills">
         <span id="p-plat" class="pill">平台：--</span>
         <span id="p-llm" class="pill">大模型：待命</span>
@@ -839,6 +839,7 @@
       if (st.background) renderBgPanel(st.background);
       if (st.topic) renderTopicStatus(st.topic);
       if (st.preview) applyPreviewState(st.preview);
+      if (st.app_version) document.getElementById("app-ver").textContent = "v" + st.app_version;
       lastStatus = st;
       const pLt = document.getElementById("p-lt");
       pLt.textContent = st.lt_online ? "数字人：已启动" : "数字人：未启动";
