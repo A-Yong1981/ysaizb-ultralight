@@ -81,7 +81,9 @@ class SinglePlatformManager:
     def _save_state(self) -> None:
         data = {"active_profile": self.active_key, "room": self.active_room,
                 "updated": time.strftime("%Y-%m-%d %H:%M:%S")}
-        self.state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, self.state_path)
 
     def reload(self) -> None:
         self.data = self._load()

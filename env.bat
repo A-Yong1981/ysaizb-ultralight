@@ -6,15 +6,28 @@ set "ENGINE_DIR=%ROOT%engine"
 set "UDH_DIR=%ROOT%Ultralight-Digital-Human"
 set "CONDA_ENV=ultralight"
 
-rem Ultralight engine runtime options (RTX 2080 8GB)
-rem   UL_ASR     : wenet (20fps ONNX, <1GB VRAM) | hubert (25fps FP16, ~1.3GB VRAM)
-rem   UL_BACKEND : onnx | torch
+rem Ultralight engine runtime options (i5-12400F / 32GB / RTX 2080 8GB)
+rem   Plain-language help for every option: WebUI -> Easy Setup, or desktop app -> Easy Setup button
+rem   UL_ASR         : wenet (20fps ONNX, <1GB VRAM) | hubert (25fps FP16, ~1.3GB VRAM)
+rem   UL_BACKEND     : onnx | torch
+rem   UL_MAX_SESSION : video outputs at the same time (OBS needs 1; each extra one costs a CPU encoder)
+rem   UL_MAX_FRAMES  : body-motion loop frames kept in RAM (25 = 1 second)
+rem   UL_OUT_HEIGHT  : downscale avatar frames to this height before streaming (0 = keep original)
+rem   UL_BATCH       : frames per UNet call when catching up (needs dynamic-batch unet.onnx)
+rem   UL_ORT_GPU_MB  : VRAM cap for ONNX Runtime arena (keeps whole box under 4.5GB)
+rem   UL_MAX_LOADED  : avatars/outfits kept in RAM (LRU)
+rem   UL_HOST        : 127.0.0.1 = this PC only (safe); 0.0.0.0 = whole LAN (unsafe)
 set "UL_ASR=hubert"
 set "UL_BACKEND=onnx"
 set "UL_AVATAR=a_c52c"
 set "UL_VOICE=zh-CN-XiaoxiaoNeural"
 set "UL_BATCH=4"
-set "UL_MAX_SESSION=2"
+set "UL_MAX_SESSION=1"
+set "UL_MAX_FRAMES=300"
+set "UL_OUT_HEIGHT=1280"
+set "UL_ORT_GPU_MB=2048"
+set "UL_MAX_LOADED=2"
+set "UL_HOST=127.0.0.1"
 set "UL_PORT=8020"
 set "HUB_PORT=28910"
 

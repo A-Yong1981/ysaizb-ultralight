@@ -9,6 +9,7 @@ kb_engine.py —— 双模式知识库引擎（0 显存）
   > [板书] 要点         板书要点（属于所在章节，建议 12~22 字）
   ## 小节标题
   普通段落             口播正文（自动按句切成 ≤ chunk_max_chars 字的播讲段）
+  > [主题词] 防骗|反诈   可选：给当前章/小节补充观众口语叫法，弹幕点播主题时识别更准
   Q: 触发词1|触发词2    精准问答（触发词建议 3 字以上的口语问法）
   A: 标准回答
   <!-- 注释 -->        忽略
@@ -116,6 +117,8 @@ def parse_markdown(md_text: str, max_len: int = 100) -> Tuple[List[Dict[str, Any
     cur_section = ""
     cur_bg = ''
     cur_points: List[str] = []
+    ch_kw: List[str] = []
+    sec_kw: List[str] = []
     para_buf: List[str] = []
     pending_q: Optional[List[str]] = None
     in_comment = False
@@ -139,6 +142,7 @@ def parse_markdown(md_text: str, max_len: int = 100) -> Tuple[List[Dict[str, Any
                 "section": cur_section,
                 "bg_video": cur_bg,
                 "board_points": list(cur_points),
+                "topic_keywords": ch_kw + [k for k in sec_kw if k not in ch_kw],
                 "text": piece,
                 "embedding": [],
             })
@@ -178,6 +182,8 @@ def parse_markdown(md_text: str, max_len: int = 100) -> Tuple[List[Dict[str, Any
             title = re.sub(r"^#\s+", "", line).strip()
             cur_section = ""
             cur_points = []
+            ch_kw = []
+            sec_kw = []
             cur_bg = ''
             if any(w in title for w in FAQ_HEADER_WORDS):
                 cur_chapter = title
@@ -188,12 +194,21 @@ def parse_markdown(md_text: str, max_len: int = 100) -> Tuple[List[Dict[str, Any
         if re.match(r"^#{2,6}\s+", line):
             flush_para()
             cur_section = re.sub(r"^#{2,6}\s+", "", line).strip()
+            sec_kw = []
             continue
         if line.startswith(">"):
             flush_para()
             bg = re.match(r"^>\s*(?:\[背景\]|【背景】)\s*(.+)$", line)
             if bg:
                 cur_bg = bg[1].strip()
+                continue
+            tk = re.match(r"^>\s*(?:\[(?:主题词|关键词)\]|【(?:主题词|关键词)】)\s*(.+)$", line)
+            if tk:
+                target = sec_kw if cur_section else ch_kw
+                for kw in re.split(r"[|｜/、,，\s]+", tk[1]):
+                    kw = kw.strip()
+                    if len(kw) >= 2 and kw not in target:
+                        target.append(kw)
                 continue
             pt = re.sub(r"^>\s*(\[板书\]|【板书】|板书\s*[:：]|\[board\])?\s*", "", re.sub(r"\*\*|__", "", line), flags=re.I).strip()
             if pt:

@@ -215,6 +215,32 @@
       -webkit-text-stroke: 2px #000000; color: #FFFFFF; font-size: 18px; font-weight: 600;
     }
     @media (prefers-reduced-motion: reduce) { .dot-warn, .dot-error { animation: none; } }
+
+    /* 主题点播 + 傻瓜配置向导 */
+    .tp-now { padding: 10px 12px; border-radius: 12px; background: var(--soft); border: 1px solid var(--border); }
+    .tp-now.on { background: var(--accent-soft); border-color: #b9dcd2; }
+    .tp-list { max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+    .tp-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px;
+               border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+    .tp-item.sec-level { margin-left: 18px; }
+    .tp-item .tt { font-weight: 600; } .tp-item .kw { font-size: 12px; color: var(--muted); }
+    .gd-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+    .gd-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; cursor: pointer; }
+    .gd-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .gd-card .t { font-weight: 700; } .gd-card .d { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+    .gd-q { display: flex; flex-direction: column; gap: 4px; }
+    .gd-item { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; }
+    .gd-item .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .gd-item .plain { font-size: 13px; margin-top: 4px; }
+    .gd-item .pro { font-size: 12px; color: var(--muted); margin-top: 2px; display: none; }
+    .gd-show-pro .gd-item .pro { display: block; }
+    .gd-item .rec { font-size: 12px; color: var(--accent); }
+    .gd-item.custom { border-color: #ecd3ad; }
+    .gd-doc { border-radius: 10px; padding: 8px 12px; border: 1px solid var(--border); }
+    .gd-doc.error { background: var(--red-soft); border-color: #eec2bb; }
+    .gd-doc.warn { background: var(--warn-soft); border-color: #ecd3ad; }
+    .gd-doc.ok, .gd-doc.info { background: var(--soft); }
+    .gd-group { font-weight: 700; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -284,6 +310,39 @@
         <div class="hint">点章节按钮可以跳到那一章；观众提问时主播会先回答，答完自动接着讲。</div>
       </div>
 
+      <div class="panel" id="topic-panel">
+        <h3>
+          <span>🎯 观众点播主题</span>
+          <span class="tag" id="tp-badge">--</span>
+        </h3>
+        <div id="tp-now" class="tp-now">还没有人点播。观众在弹幕里打“先讲讲防骗”“想听三国”，知识库里有这个主题，主播就会把这部分整段讲给他听，讲完自动回到原来的章节。</div>
+        <div class="row wrap">
+          <label class="hint">怎么判断观众在点播：</label>
+          <select id="tp-mode" onchange="saveTopicMode()" style="max-width:260px;">
+            <option value="auto">关键词秒判 + AI 复核（推荐）</option>
+            <option value="ai">每条都让 AI 判断（最准，最费额度）</option>
+            <option value="rules">只用关键词（不花 AI 额度）</option>
+          </select>
+          <button class="sec" onclick="stopTopic()">停止当前点播</button>
+        </div>
+        <div class="row">
+          <input id="tp-test-q" type="text" placeholder="测试观众说法，如：主播先讲讲怎么防止被骗钱" onkeydown="if(event.key==='Enter') testTopic()" />
+          <button class="sec" onclick="testTopic()">测试会点到哪</button>
+        </div>
+        <div id="tp-test-out" class="hint"></div>
+        <details class="adv">
+          <summary>主题目录（可手动点播）<span class="sumhint" id="tp-count">知识库按章节/小节自动整理</span></summary>
+          <div class="inner">
+            <div class="row">
+              <input id="tp-filter" type="text" placeholder="搜主题，如：防骗 / 三国 / 显卡" oninput="renderTopicList()" />
+              <button class="sec" onclick="rebuildTopics()">重建目录</button>
+            </div>
+            <div id="tp-list" class="tp-list"></div>
+            <div class="hint">小技巧：在讲稿章节下面加一行 <code>&gt; [主题词] 防骗|反诈|骗子</code>，写上观众平时的叫法，点播会更准。</div>
+          </div>
+        </details>
+      </div>
+
       <div class="panel">
         <h3>
           <span>直播记录</span>
@@ -315,6 +374,25 @@
 
       <!-- 高级功能：平时不用打开 -->
       <div class="adv-wrap">
+        <details class="adv" id="adv-guide">
+          <summary>🧸 傻瓜配置向导<span class="sumhint">不懂参数也能配：回答 3 个问题，或点一个预设，每项设置都有大白话解释</span></summary>
+          <div class="inner">
+            <div class="hint" id="gd-host"></div>
+            <h4>① 回答 3 个问题，自动配好</h4>
+            <div id="gd-wizard" class="row wrap" style="align-items:flex-start;"></div>
+            <div class="row"><button class="sec" onclick="previewWizard()">先看看会改什么</button><button class="green" onclick="applyGuide({wizard: wizardAnswers()})">按我的回答一键配置</button></div>
+            <div id="gd-wizard-out" class="hint"></div>
+            <h4>② 或者直接选一个预设</h4>
+            <div id="gd-presets" class="gd-presets"></div>
+            <h4>③ 配置体检（按 12400F / 32GB / RTX 2080 红线）</h4>
+            <div id="gd-doctor" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <h4>④ 逐项微调 <label class="hint" style="font-weight:400;margin-left:8px;"><input type="checkbox" id="gd-pro" onchange="document.getElementById('gd-items').classList.toggle('gd-show-pro', this.checked)" /> 显示专业说明</label>
+              <label class="hint" style="font-weight:400;margin-left:8px;"><input type="checkbox" id="gd-adv" onchange="renderGuideItems()" /> 显示高级参数</label></h4>
+            <div id="gd-items" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <div class="row"><button class="green" onclick="saveGuideItems()">保存上面的修改</button><span class="hint" id="gd-state"></span></div>
+          </div>
+        </details>
+
         <details class="adv">
           <summary>把文章变成讲稿<span class="sumhint">网页链接 / Word / 粘贴文字，一键生成新讲稿</span></summary>
           <div class="inner">
@@ -736,6 +814,7 @@
     }
     function applyStatus(st) {
       if (st.background) renderBgPanel(st.background);
+      if (st.topic) renderTopicStatus(st.topic);
       lastStatus = st;
       const pLt = document.getElementById("p-lt");
       pLt.textContent = st.lt_online ? "数字人：已启动" : "数字人：未启动";
@@ -887,8 +966,14 @@
       fd.append("epochs", String(epochs));
       fd.append("batch_size", "16");
       if (ckpt) fd.append("ckpt_file", ckpt);
-      const res = await fetch("/api/avatar/create", { method: "POST", body: fd });
-      const data = await res.json();
+      let res = await fetch("/api/avatar/create", { method: "POST", body: fd });
+      let data = await res.json();
+      if (data.code === 409) {
+        if (!confirm(data.msg + "\n\n确认已经下播、现在就要训练吗？")) { progEl.textContent = "已取消：直播中不训练，下播后再来。"; return; }
+        fd.append("force", "1");
+        res = await fetch("/api/avatar/create", { method: "POST", body: fd });
+        data = await res.json();
+      }
       if (data.code !== 0 || !(data.data && data.data.task_id)) {
         progEl.textContent = "提交失败：" + (data.msg || JSON.stringify(data));
         return;
@@ -1433,6 +1518,147 @@
       renderOverlayUi(res.overlay || res);
     }
 
+    // ---------------- 观众主题点播 ----------------
+    let topicCatalog = [];
+    function renderTopicStatus(t) {
+      if (!t) return;
+      const badge = document.getElementById("tp-badge");
+      badge.textContent = t.enabled ? `${t.total_topics || 0} 个主题 · ${t.ai_ready ? "AI 复核可用" : "AI 未配 Key，用关键词"}` : "未开启";
+      const sel = document.getElementById("tp-mode");
+      if (document.activeElement !== sel && t.detect_mode) sel.value = t.detect_mode;
+      const box = document.getElementById("tp-now");
+      if (t.active) {
+        box.className = "tp-now on";
+        const pend = (t.pending || []).map(p => `「${escapeHtml(p.title)}」(${escapeHtml(p.user)})`).join("、");
+        box.innerHTML = `正在讲 <b>「${escapeHtml(t.active.title)}」</b> · ${escapeHtml(t.active.user)} 点播 · 第 ${Math.min(t.active.idx + 1, t.active.total)}/${t.active.total} 段`
+          + (pend ? `<div class="hint">排队中：${pend}</div>` : "");
+      } else {
+        box.className = "tp-now";
+        box.textContent = (t.pending && t.pending.length) ? "准备讲下一个点播主题..." : "还没有人点播。观众打“先讲讲防骗”“想听三国”，知识库里有就整段讲给他听，讲完回到原来的章节。";
+      }
+    }
+    async function loadTopics() {
+      try {
+        const d = await (await fetch("/api/topics")).json();
+        topicCatalog = d.catalog || [];
+        document.getElementById("tp-count").textContent = `共 ${topicCatalog.length} 个主题，目录更新于 ${d.built_at || "--"}`;
+        renderTopicStatus(d.status);
+        renderTopicList();
+      } catch (e) { /* 中控未就绪 */ }
+    }
+    function renderTopicList() {
+      const q = (document.getElementById("tp-filter").value || "").trim().toLowerCase();
+      const list = topicCatalog.filter(t => !q || (t.title + " " + (t.keywords || []).join(" ") + " " + t.doc).toLowerCase().includes(q));
+      document.getElementById("tp-list").innerHTML = list.map(t => `
+        <div class="tp-item ${t.level === "section" ? "sec-level" : ""}">
+          <div><div class="tt">${t.level === "section" ? "└ " : ""}${escapeHtml(t.title)}</div>
+          <div class="kw">${escapeHtml(t.doc)} · ${t.beats} 段${(t.keywords || []).length ? " · " + escapeHtml(t.keywords.slice(0, 4).join("、")) : ""}</div></div>
+          <button class="sec" onclick="playTopic('${encodeURIComponent(t.tid)}')">现在讲</button>
+        </div>`).join("") || `<div class="hint">没有找到匹配的主题</div>`;
+    }
+    async function playTopic(tidEnc) {
+      const d = await (await postJson("/api/topics/play", { tid: decodeURIComponent(tidEnc), user: "主播" })).json();
+      if (d.code !== 0) alert(d.msg || "点播失败");
+    }
+    async function stopTopic() { await postJson("/api/topics/stop", { clear_pending: true }); }
+    async function rebuildTopics() { await postJson("/api/topics/rebuild", {}); loadTopics(); }
+    async function saveTopicMode() {
+      const v = document.getElementById("tp-mode").value;
+      const d = await (await postJson("/api/guide/apply", { values: { "knowledge_base.topic_router.detect_mode": v } })).json();
+      if (d.code !== 0) alert(d.msg);
+    }
+    async function testTopic() {
+      const text = document.getElementById("tp-test-q").value.trim();
+      if (!text) return;
+      const out = document.getElementById("tp-test-out");
+      out.textContent = "正在判断...";
+      const d = await (await postJson("/api/topics/test", { text, use_ai: true })).json();
+      if (d.code !== 0) { out.textContent = d.msg; return; }
+      const how = { rules: "关键词秒判", ai: "AI 判断", rules_fallback: "关键词兜底", rules_short: "短弹幕直呼主题", none: "" }[d.method] || d.method;
+      out.innerHTML = d.is_request
+        ? `✅ 会被当成点播（${escapeHtml(how)}，把握度 ${d.score}）→ <b>「${escapeHtml(d.topic.title)}」</b>，来自 ${escapeHtml(d.topic.doc)}，共 ${d.topic.beats} 段。<br>开口第一句：${escapeHtml(d.first_beat.slice(0, 80))}…`
+        : `➖ 不会整段点播：${escapeHtml(d.reason)}。这条弹幕会按普通提问回答。`
+          + (d.candidates && d.candidates.length ? `<br>最接近的主题：${d.candidates.slice(0, 3).map(c => `「${escapeHtml(c.title)}」${c.score}`).join("、")}` : "");
+    }
+
+    // ---------------- 傻瓜配置向导 ----------------
+    let guideData = null;
+    async function loadGuide() {
+      try { guideData = await (await fetch("/api/guide")).json(); } catch (e) { return; }
+      document.getElementById("gd-host").textContent = "按你的电脑配置推荐：" + (guideData.host_profile || "");
+      document.getElementById("gd-wizard").innerHTML = (guideData.wizard || []).map(q => `
+        <div class="gd-q"><span class="hint">${escapeHtml(q.q)}</span>
+          <select id="gdq-${q.id}">${q.options.map(o => `<option value="${escapeHtml(o[0])}">${escapeHtml(o[1])}</option>`).join("")}</select></div>`).join("");
+      document.getElementById("gd-presets").innerHTML = (guideData.presets || []).map(p => `
+        <div class="gd-card" onclick="applyGuide({preset:'${p.id}'}, '${escapeHtml(p.title)}')"><div class="t">${escapeHtml(p.title)}</div><div class="d">${escapeHtml(p.plain)}</div></div>`).join("");
+      renderDoctor(guideData.doctor || []);
+      renderGuideItems();
+    }
+    function wizardAnswers() {
+      const a = {};
+      (guideData?.wizard || []).forEach(q => a[q.id] = document.getElementById("gdq-" + q.id).value);
+      return a;
+    }
+    async function previewWizard() {
+      const d = await (await postJson("/api/guide/wizard", { answers: wizardAnswers() })).json();
+      document.getElementById("gd-wizard-out").innerHTML = (d.explain || []).map(escapeHtml).join("<br>");
+    }
+    function renderDoctor(list) {
+      const icon = { error: "⛔", warn: "⚠️", info: "💡", ok: "✅" };
+      document.getElementById("gd-doctor").innerHTML = list.map((f, i) => `
+        <div class="gd-doc ${escapeHtml(f.level)}"><b>${icon[f.level] || ""} ${escapeHtml(f.title)}</b>
+          <div class="hint">${escapeHtml(f.plain)}</div>
+          ${f.fix ? `<button class="sec" onclick="applyGuide({fix_index:${i}}, '修复：${escapeHtml(f.title)}')">一键修复</button>` : ""}</div>`).join("");
+    }
+    function renderGuideItems() {
+      if (!guideData) return;
+      const showAdv = document.getElementById("gd-adv").checked;
+      let lastGroup = "";
+      const html = [];
+      (guideData.items || []).filter(it => showAdv || it.level === "basic").forEach(it => {
+        if (it.group !== lastGroup) { html.push(`<div class="gd-group">${escapeHtml(it.group)}${it.restart ? '<span class="hint">（改完需重启数字人引擎）</span>' : ""}</div>`); lastGroup = it.group; }
+        const id = "gdi-" + it.key.replace(/[^a-zA-Z0-9_]/g, "_");
+        const cur = it.current;
+        let input = "";
+        if (it.type === "bool") input = `<input type="checkbox" id="${id}" ${cur === true || cur === "1" || cur === "true" ? "checked" : ""} />`;
+        else if (it.type === "choice") input = `<select id="${id}">${it.choices.map(c => `<option value="${escapeHtml(c[0])}" ${String(cur) === String(c[0]) ? "selected" : ""}>${escapeHtml(c[1])}</option>`).join("")}</select>`;
+        else input = `<input type="number" id="${id}" value="${cur ?? ""}" min="${it.min ?? ""}" max="${it.max ?? ""}" step="${it.type === "float" ? "0.05" : "1"}" style="max-width:110px;" />`;
+        const recText = it.type === "choice" ? (it.choices.find(c => String(c[0]) === String(it.recommend)) || [it.recommend, it.recommend])[1] : (it.type === "bool" ? (it.recommend ? "开" : "关") : it.recommend);
+        html.push(`<div class="gd-item ${it.is_recommended ? "" : "custom"}" data-key="${escapeHtml(it.key)}" data-type="${it.type}">
+          <div class="head"><b>${escapeHtml(it.label)}</b>${input}</div>
+          <div class="plain">${escapeHtml(it.plain)}</div>
+          <div class="rec">推荐：${escapeHtml(String(recText))}${it.is_recommended ? "（当前就是推荐值）" : ""}</div>
+          <div class="pro">专业说明：${escapeHtml(it.pro || "")}</div></div>`);
+      });
+      document.getElementById("gd-items").innerHTML = html.join("");
+    }
+    async function saveGuideItems() {
+      const values = {};
+      document.querySelectorAll("#gd-items .gd-item").forEach(el => {
+        const key = el.dataset.key, type = el.dataset.type;
+        const inp = document.getElementById("gdi-" + key.replace(/[^a-zA-Z0-9_]/g, "_"));
+        if (!inp) return;
+        const v = type === "bool" ? inp.checked : (type === "choice" ? inp.value : inp.value);
+        if (type !== "bool" && type !== "choice" && v === "") return;
+        values[key] = v;
+      });
+      await applyGuide({ values }, "逐项修改");
+    }
+    async function applyGuide(body, label) {
+      if (label && body.preset && !confirm(`确定套用「${label}」吗？`)) return;
+      const st = document.getElementById("gd-state");
+      const d = await (await postJson("/api/guide/apply", body)).json();
+      if (d.code !== 0) { alert(d.msg || "保存失败"); return; }
+      const msg = d.plain + (d.changed && d.changed.length ? `（改了 ${d.changed.length} 项）` : "（没有变化）");
+      if (st) st.textContent = msg;
+      document.getElementById("gd-wizard-out").textContent = msg;
+      if (d.restart_engine) alert(msg + "\n\n请在桌面端或控制台重启数字人引擎。");
+      if (d.bundle) { guideData = d.bundle; renderDoctor(guideData.doctor || []); renderGuideItems(); }
+      loadTopics();
+    }
+    loadTopics();
+    loadGuide();
+
     const es = new EventSource("/api/events");
     es.onmessage = (evt) => {
       const data = JSON.parse(evt.data);
@@ -1440,6 +1666,7 @@
       else if (data.type === "overlay_update") renderOverlayUi(data);
       else if (data.type === "log") appendLog(data);
       else if (data.type === "health") renderHealth(data);
+      else if (data.type === "topic_update") renderTopicStatus(data);
     };
 
     // ---------------- 系统健康诊断 ----------------

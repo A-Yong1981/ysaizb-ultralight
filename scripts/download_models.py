@@ -178,11 +178,42 @@ def download_vgg19() -> bool:
         return False
 
 
+FONTS_DIR = ROOT / "ai-live-hub" / "static" / "fonts"
+NOTO_SANS_PATH = FONTS_DIR / "NotoSansSC-VF.ttf"
+NOTO_SANS_URLS = [
+    "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+]
+
+
+def download_free_fonts() -> bool:
+    """可选：下载思源黑体 Noto Sans SC（SIL OFL 1.1 免费商用），字幕默认字体就不再依赖本机是否安装。"""
+    if NOTO_SANS_PATH.is_file() and NOTO_SANS_PATH.stat().st_size > 1_000_000:
+        print(f"[OK] 思源黑体已存在: {NOTO_SANS_PATH}")
+        return True
+    FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    print("==> 下载思源黑体 Noto Sans SC（SIL OFL 1.1，约 17MB）...")
+    for url in NOTO_SANS_URLS:
+        try:
+            _download_with_progress(url, NOTO_SANS_PATH, timeout=120.0)
+            if NOTO_SANS_PATH.stat().st_size > 1_000_000:
+                print(f"[OK] 思源黑体下载完成 -> {NOTO_SANS_PATH}")
+                return True
+        except Exception as exc:
+            print(f"[WARN] 从 {url} 下载失败: {exc}")
+            NOTO_SANS_PATH.unlink(missing_ok=True)
+    print("[WARN] 思源黑体下载失败：字幕会自动改用随包内置的霞鹜文楷（同样免费商用），不影响直播。")
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="下载并校验 Ultralight-Digital-Human 所需模型权重")
-    ap.add_argument("--mode", default="all", choices=["all", "wenet", "hubert", "check"])
+    ap.add_argument("--mode", default="all", choices=["all", "wenet", "hubert", "check", "fonts"])
     ap.add_argument("--with-vgg", action="store_true", help="同时预缓存训练用 VGG19")
+    ap.add_argument("--with-fonts", action="store_true", help="同时下载思源黑体（字幕默认免费商用字体）")
     args = ap.parse_args()
+    if args.mode == "fonts":
+        return 0 if download_free_fonts() else 1
 
     st = check_local_assets()
     print("当前基础模型状态:")
@@ -202,6 +233,8 @@ def main() -> int:
         ok = download_hubert() and ok
     if args.with_vgg or args.mode == "all":
         download_vgg19()
+    if args.with_fonts or args.mode == "all":
+        download_free_fonts()   # 失败不影响整体结果：有随包字体兜底
     return 0 if ok else 1
 
 

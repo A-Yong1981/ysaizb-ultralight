@@ -21,6 +21,11 @@ for p in (HUB_DIR, ROOT_DIR, UDH_DIR):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+import config_guide  # noqa: E402
+
+# 全新克隆没有 config.json / platform_profiles.json：从 *.example.json 自动生成后再测
+config_guide.ensure_runtime_configs(HUB_DIR)
+
 
 def test_compile_all_python():
     targets = [
@@ -41,6 +46,8 @@ def test_compile_all_python():
         HUB_DIR / "danmaku_relay.py",
         HUB_DIR / "tiktok_relay.py",
         HUB_DIR / "overlay_presets.py",
+        HUB_DIR / "topic_router.py",
+        HUB_DIR / "config_guide.py",
     ]
     for f in targets:
         assert f.is_file(), f"Missing file: {f}"
@@ -156,9 +163,20 @@ def test_hub_fastapi_endpoints():
     import server
 
     with TestClient(server.app) as client:
-        for path in ("/", "/stage", "/api/status", "/api/health", "/api/kb/status", "/api/avatar/list", "/api/platform/list", "/api/overlay/config"):
+        for path in ("/", "/stage", "/api/status", "/api/health", "/api/kb/status", "/api/avatar/list", "/api/platform/list",
+                     "/api/overlay/config", "/api/topics", "/api/guide"):
             r = client.get(path)
             assert r.status_code == 200, f"GET {path} failed with {r.status_code}"
+        tp = client.get("/api/topics").json()
+        assert tp["code"] == 0 and len(tp["catalog"]) > 0 and "topic" in client.get("/api/status").json()["status"]
+        hit = client.post("/api/topics/test", json={"text": "主播先讲讲防骗吧", "use_ai": False}).json()
+        assert hit["is_request"] and hit["topic"] and hit["first_beat"]
+        miss = client.post("/api/topics/test", json={"text": "AI会犯错吗", "use_ai": False}).json()
+        assert miss["is_request"] is False
+        gd = client.get("/api/guide").json()
+        assert gd["code"] == 0 and len(gd["items"]) >= 20 and len(gd["presets"]) >= 5 and gd["doctor"]
+        bad = client.post("/api/guide/apply", json={"patch": {"config": {"x": 1}}}).json()
+        assert bad["code"] == 1, "guide/apply must reject arbitrary patches"
         st = client.get("/api/status").json()
         assert "status" in st and "active_platform" in st["status"]
         assert "overlay" in st["status"]
