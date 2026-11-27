@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>泳昇数字人 · Ultralight-Digital-Human 中控台</title>
+  <title>泳昇 Ultralight 数字人直播平台 · 网页控制台</title>
   <style>
     :root {
       --bg: #f2f2f7; --card: #ffffff; --soft: #f9f9fb; --border: #e5e5ea;
@@ -249,7 +249,7 @@
 <body>
   <header>
     <div>
-      <div class="brand">泳昇多模态直播平台<small>多主播 · 多平台智能直播中控</small></div>
+      <div class="brand">泳昇 Ultralight 数字人直播平台<small>网页控制台 <span id="app-ver"></span> · 多主播 · 多平台 · 观众点播</small></div>
       <div class="subpills">
         <span id="p-plat" class="pill">平台：--</span>
         <span id="p-llm" class="pill">大模型：待命</span>
@@ -510,7 +510,7 @@
             <div id="provider-list" style="display:flex;flex-direction:column;gap:6px;"></div>
             <h4>手动连接画面（一般不用）</h4>
             <div class="row">
-              <input id="manual-sid" type="text" placeholder="LiveTalking sessionid" />
+              <input id="manual-sid" type="text" placeholder="数字人画面会话 ID（一般不用填）" />
               <button class="sec" onclick="bindSession()">连接</button>
             </div>
           </div>
@@ -839,6 +839,7 @@
       if (st.background) renderBgPanel(st.background);
       if (st.topic) renderTopicStatus(st.topic);
       if (st.preview) applyPreviewState(st.preview);
+      if (st.app_version) document.getElementById("app-ver").textContent = "v" + st.app_version;
       lastStatus = st;
       const pLt = document.getElementById("p-lt");
       pLt.textContent = st.lt_online ? "数字人：已启动" : "数字人：未启动";
@@ -884,7 +885,7 @@
     function renderGuide(st) {
       const kb = st.kb || {};
       setStep(1, st.lt_online, st.lt_online ? "已启动" : "未启动：请双击 start_all.bat，等黑色窗口不再滚动");
-      setStep(2, !!st.session_id, st.session_id ? "已连接" : "打开 OBS 浏览器源，或点「在本页预览」");
+      setStep(2, !!st.session_id, st.session_id ? "已连接" : "打开 OBS 浏览器源，或打开右上角「直播画面预览」开关");
       let t3;
       if (!st.session_id) t3 = "画面连上后会自动开始";
       else if (st.switching_avatar) t3 = "正在换装，稍等几秒";

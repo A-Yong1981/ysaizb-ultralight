@@ -609,33 +609,18 @@ def save_json(path: Path, data: Any) -> None:
 
 
 def parse_env_bat() -> Dict[str, str]:
-    vals: Dict[str, str] = {}
-    if not ENV_BAT_PATH.exists():
-        return vals
-    for line in ENV_BAT_PATH.read_text(encoding="utf-8", errors="ignore").splitlines():
-        m = re.match(r'^\s*set\s+"([A-Za-z0-9_]+)=(.*)"\s*$', line, re.IGNORECASE)
-        if m:
-            vals[m.group(1)] = m.group(2)
-    return vals
+    """env.bat 默认值 + env.local.bat 个人设置（与 cmd 实际生效的值一致）。"""
+    import config_guide as _cg
+
+    return _cg.parse_env_bat(ENV_BAT_PATH)
 
 
 def update_env_bat(updates: Dict[str, str]) -> None:
-    if not ENV_BAT_PATH.exists():
-        return
-    lines = ENV_BAT_PATH.read_text(encoding="utf-8", errors="ignore").splitlines()
-    new_lines: List[str] = []
-    for line in lines:
-        replaced = False
-        for k, v in updates.items():
-            if re.match(rf'^\s*set\s+"{re.escape(k)}=.*"', line, re.IGNORECASE):
-                new_lines.append(f'set "{k}={v}"')
-                replaced = True
-                break
-        if not replaced:
-            new_lines.append(line)
-    tmp = ENV_BAT_PATH.with_suffix(".bat.tmp")
-    tmp.write_bytes(("\r\n".join(new_lines) + "\r\n").encode("utf-8"))
-    os.replace(tmp, ENV_BAT_PATH)
+    """主播 / 声线 / 引擎参数只写入 env.local.bat（不进 git），env.bat 保持仓库原样，以后更新不再冲突。"""
+    import config_guide as _cg
+
+    if updates:
+        _cg.update_env_bat(ENV_BAT_PATH, {k: str(v) for k, v in updates.items()})
 
 
 def is_port_open(host: str, port: int, timeout: float = 0.6) -> bool:

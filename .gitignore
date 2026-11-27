@@ -1,4 +1,5 @@
 # 真实密钥配置（只提交 *.example.json）
+env.local.bat
 config.json
 platform_profiles.json
 launcher_settings.json

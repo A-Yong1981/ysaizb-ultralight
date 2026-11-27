@@ -48,6 +48,8 @@ def test_compile_all_python():
         HUB_DIR / "overlay_presets.py",
         HUB_DIR / "topic_router.py",
         HUB_DIR / "config_guide.py",
+        HUB_DIR / "app_version.py",
+        ROOT_DIR / "scripts" / "safe_update.py",
     ]
     for f in targets:
         assert f.is_file(), f"Missing file: {f}"

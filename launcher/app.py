@@ -18,6 +18,7 @@ import cv2
 from PIL import Image, ImageTk
 
 from launcher import backend as bk
+from app_version import APP_NAME, APP_VERSION  # noqa: E402  (backend 已把 ai-live-hub 加入搜索路径)
 
 
 UI_THEMES: Dict[str, Dict[str, str]] = {
@@ -113,7 +114,7 @@ def enable_dpi_awareness() -> None:
 class LauncherApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("泳昇 Ultralight 数字人直播平台")
+        self.title(f"{APP_NAME}  v{APP_VERSION}")
         self.geometry("1160x850")
         self.minsize(1020, 740)
         self._apply_icon_to(self)
@@ -535,7 +536,7 @@ class LauncherApp(tk.Tk):
         # 顶部冰晶 / 玄岩标题栏
         self.top_bar = tk.Frame(self, bg=t["bar_bg"], padx=16, pady=10)
         self.top_bar.pack(fill="x")
-        self.lbl_app_title = tk.Label(self.top_bar, text="泳昇 Ultralight 数字人直播平台", bg=t["bar_bg"], fg=t["fg"], font=("Microsoft YaHei UI", 15, "bold"))
+        self.lbl_app_title = tk.Label(self.top_bar, text=f"{APP_NAME}  v{APP_VERSION}", bg=t["bar_bg"], fg=t["fg"], font=("Microsoft YaHei UI", 15, "bold"))
         self.lbl_app_title.pack(side="left")
 
         self.right_top = tk.Frame(self.top_bar, bg=t["bar_bg"])

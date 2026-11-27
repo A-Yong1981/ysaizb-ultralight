@@ -48,6 +48,7 @@ from overlay_presets import (
 )
 from topic_router import TopicIndex, fill_template, has_request_intent
 import config_guide
+from app_version import APP_NAME, APP_VERSION
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -212,6 +213,7 @@ class LiveState:
             "kb_board": render_board(kb_engine.last_board) if narration_active() else None,
             "topic": topic_snapshot(),
             "preview": preview_snapshot(),
+            "app_version": APP_VERSION,
             "converting": self.converting,
             # TTS
             "tts_mode": tts_cfg.get("mode", "edgetts"),
@@ -927,7 +929,7 @@ async def _clear_stale_session(reason: str = "") -> None:
         state.session_id = None
         state.is_speaking = False
         state.current_speech_kind = ""
-        await state.add_log("warn", f"LiveTalking 会话已失效（{reason or 'session not found'}），已自动重置等待重连")
+        await state.add_log("warn", f"数字人画面会话已失效（{reason or 'session not found'}），已自动重置等待重连")
         await state.broadcast("status", state.snapshot())
 
 
@@ -990,7 +992,7 @@ async def lt_send_speech(
 ) -> bool:
     """优先走克隆音色推 /humanaudio，失败自动回退 /human(Edge-TTS)。"""
     if not state.session_id:
-        await state.add_log("warn", "尚未捕获 LiveTalking sessionid，请先在 OBS 或预览页连接数字人画面")
+        await state.add_log("warn", "数字人画面还没连上，请先打开 OBS 浏览器源，或打开网页控制台的「直播画面预览」开关")
         return False
     clean_text = sanitize_speech_text(fill_name(text), max_chars)
     if not clean_text:
@@ -1060,10 +1062,10 @@ async def lt_send_speech(
         if resp.status_code == 200 and "session not found" in resp.text.lower():
             await _clear_stale_session("speech")
             return False
-        await state.add_log("error", f"LiveTalking 驱动异常: {resp.text}")
+        await state.add_log("error", f"数字人引擎返回异常: {resp.text}")
     except Exception as exc:
         state.lt_online = False
-        await state.add_log("error", f"调用 LiveTalking 失败: {exc}")
+        await state.add_log("error", f"调用数字人引擎失败（:8020 是否已启动？）: {exc}")
     return False
 
 
@@ -1532,7 +1534,7 @@ async def lifespan(_: FastAPI):
     scheduler_task = asyncio.create_task(scheduler_loop())
     wd_task = asyncio.create_task(prof_mgr.watchdog(state.add_log))
     h_task = asyncio.create_task(health_loop())
-    await state.add_log("info", "泳昇数字人 · AI 无人直播中控网关已启动")
+    await state.add_log("info", f"{APP_NAME} v{APP_VERSION} · 中控已启动")
     await state.add_log("info", kb_boot_msg)
     await state.add_log("info", topic_boot_msg)
     await state.add_log(
@@ -1540,7 +1542,7 @@ async def lifespan(_: FastAPI):
         f"当前平台预设: {plat().get('label', prof_mgr.active_key)}（弹幕采集器需在 WebUI 点「一键切播」后启动）",
     )
     d = avatars_dir()
-    await state.add_log("info", f"LiveTalking 形象目录: {d if d else '未配置（换装前不做存在性检查）'}")
+    await state.add_log("info", f"数字人形象目录: {d if d else '未配置（换装前不做存在性检查）'}")
     try:
         yield
     finally:
@@ -1552,7 +1554,7 @@ async def lifespan(_: FastAPI):
         await http_client.aclose()
 
 
-app = FastAPI(title="泳昇数字人 AI Live Hub (RTX 2080 8G)", lifespan=lifespan)
+app = FastAPI(title=f"{APP_NAME} · 中控 v{APP_VERSION}", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -1833,14 +1835,18 @@ async def api_bg_upload(
         path.unlink(missing_ok=True)
     return await api_bg_config({"bind_doc": bind_doc, "bind_video": name, "mode": "kb_auto"})
 
+# 页面不让浏览器 / OBS 缓存：更新代码后刷新一下就是最新版，不会还显示旧名称旧按钮
+NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+
 @app.get("/")
 async def index_page():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE)
 
 
 @app.get("/stage")
 async def stage_page():
-    return FileResponse(STATIC_DIR / "overlay.html")
+    return FileResponse(STATIC_DIR / "overlay.html", headers=NO_CACHE)
 
 
 @app.get("/favicon.ico")
@@ -1898,7 +1904,7 @@ async def proxy_webrtc_offer(request: Request):
 
                 asyncio.create_task(_delayed_say(msg))
         else:
-            err_msg = str(data.get("msg") or "LiveTalking 未返回 sessionid")
+            err_msg = str(data.get("msg") or "数字人引擎未返回画面会话")
             await state.add_log("warn", f"WebRTC 绑定形象 [{target_avatar}] 未就绪: {err_msg}")
             if "maximum session" not in err_msg.lower():
                 state.switching_avatar = False
@@ -1907,7 +1913,7 @@ async def proxy_webrtc_offer(request: Request):
     except Exception as exc:
         state.lt_online = False
         state.switching_avatar = False
-        raise HTTPException(status_code=502, detail=f"连接 LiveTalking /offer 失败: {exc}")
+        raise HTTPException(status_code=502, detail=f"连接数字人引擎失败（:8020 是否已启动？）: {exc}")
 
 
 @app.post("/api/webrtc/release")

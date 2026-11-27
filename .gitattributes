@@ -1,15 +1,11 @@
-# Windows 批处理必须 CRLF，否则 cmd 的 goto / call :label 可能跳错位置（AGENTS.md P01）
-*.bat text eol=crlf
-*.cmd text eol=crlf
-# 其余文本统一 LF
-*.py text eol=lf
-*.md text eol=lf
-*.json text eol=lf
-*.html text eol=lf
-*.ini text
+# Windows 批处理在仓库里就是 CRLF，原样保存、原样检出（-text：不做任何换行转换）。
+# 以前用“text + 换行转换”的写法，会让 git 一直把 .bat 误判为“已修改”，导致 git pull 被拒绝。
+*.bat -text
+*.cmd -text
 # 二进制
 *.mp4 binary
 *.ttf binary
 *.ico binary
 *.onnx binary
 *.pth binary
+*.exe binary
