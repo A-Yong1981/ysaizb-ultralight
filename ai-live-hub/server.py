@@ -127,6 +127,7 @@ class LiveState:
         self.topic_last_played: Dict[str, float] = {}
         self.topic_beats_since_answer: int = 0
         self.tts_prefetching: set = set()
+        self.preview_sessions: set = set()     # 预览页的会话 ID（镜像或临时主画面）
 
         # 健康诊断与响应提速
         self.last_tts_tag: str = ""
@@ -210,6 +211,7 @@ class LiveState:
             "kb": kb_snapshot(),
             "kb_board": render_board(kb_engine.last_board) if narration_active() else None,
             "topic": topic_snapshot(),
+            "preview": preview_snapshot(),
             "converting": self.converting,
             # TTS
             "tts_mode": tts_cfg.get("mode", "edgetts"),
@@ -1869,7 +1871,15 @@ async def proxy_webrtc_offer(request: Request):
         resp.raise_for_status()
         data = resp.json()
         sid = data.get("sessionid")
+        if sid and data.get("mirror"):
+            # 预览镜像：共享 OBS 同一路画面，绝不接管主播说话的会话
+            state.preview_sessions.add(str(sid))
+            await state.add_log("info", f"预览已连接（共享 OBS 画面，不额外占用推理）: {sid}")
+            await state.broadcast("preview_update", preview_snapshot())
+            return JSONResponse(data)
         if sid:
+            if str(data.get("role") or "") == "preview":
+                state.preview_sessions.add(str(sid))
             was_switching = state.switching_avatar
             state.session_id = str(sid)
             state.lt_online = True
@@ -1908,11 +1918,40 @@ async def release_webrtc_session(request: Request):
         sid = str(body.get("sessionid") or "").strip()
     except Exception:
         sid = ""
+    if sid:
+        state.preview_sessions.discard(sid)
     if sid and state.session_id == sid:
         state.session_id = None
         state.is_speaking = False
         await state.broadcast("status", state.snapshot())
+    await state.broadcast("preview_update", preview_snapshot())
     return {"code": 0}
+
+
+# ============================================================
+# 预览开关（WebUI 与桌面端共用；关掉后所有预览页自动断开，释放 CPU 编码）
+# ============================================================
+def preview_snapshot() -> Dict[str, Any]:
+    ui = state.config.get("ui", {}) or {}
+    return {"enabled": bool(ui.get("preview_enabled", True)), "connected": len(state.preview_sessions),
+            "obs_main": bool(state.session_id and state.session_id not in state.preview_sessions)}
+
+
+@app.get("/api/preview")
+async def api_preview_get():
+    return {"code": 0, **preview_snapshot()}
+
+
+@app.post("/api/preview")
+async def api_preview_set(payload: Dict[str, Any]):
+    enabled = bool(payload.get("enabled"))
+    state.config.setdefault("ui", {})["preview_enabled"] = enabled
+    save_json(CONFIG_PATH, state.config)
+    if not enabled:
+        state.preview_sessions.clear()
+    await state.add_log("info", "已开启直播画面预览" if enabled else "已关闭直播画面预览（预览页自动断开）")
+    await state.broadcast("preview_update", preview_snapshot())
+    return {"code": 0, **preview_snapshot()}
 
 
 # ============================================================
@@ -2153,6 +2192,8 @@ async def reload_config():
     _OBS_PROBE["scene"] = ""
     await state.broadcast("bg_update", resolve_bg_payload(kb_engine.last_board.get("bg_video", "")))
     await state.broadcast("status", state.snapshot())
+    await state.broadcast("overlay_update", resolve_overlay_cfg())
+    await state.broadcast("preview_update", preview_snapshot())
     await state.add_log("info", f"已热重载 config / moderation / warmup_topics / platform_profiles | {kb_msg}")
     return {"code": 0}
 
