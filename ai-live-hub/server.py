@@ -48,6 +48,7 @@ from overlay_presets import (
 )
 from topic_router import TopicIndex, fill_template, has_request_intent
 import config_guide
+from app_version import APP_NAME, APP_VERSION
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -212,6 +213,7 @@ class LiveState:
             "kb_board": render_board(kb_engine.last_board) if narration_active() else None,
             "topic": topic_snapshot(),
             "preview": preview_snapshot(),
+            "app_version": APP_VERSION,
             "converting": self.converting,
             # TTS
             "tts_mode": tts_cfg.get("mode", "edgetts"),
@@ -1532,7 +1534,7 @@ async def lifespan(_: FastAPI):
     scheduler_task = asyncio.create_task(scheduler_loop())
     wd_task = asyncio.create_task(prof_mgr.watchdog(state.add_log))
     h_task = asyncio.create_task(health_loop())
-    await state.add_log("info", "泳昇 Ultralight 数字人直播平台 · 中控已启动")
+    await state.add_log("info", f"{APP_NAME} v{APP_VERSION} · 中控已启动")
     await state.add_log("info", kb_boot_msg)
     await state.add_log("info", topic_boot_msg)
     await state.add_log(
@@ -1552,7 +1554,7 @@ async def lifespan(_: FastAPI):
         await http_client.aclose()
 
 
-app = FastAPI(title="泳昇 Ultralight 数字人直播平台 · 中控 (RTX 2080 8G)", lifespan=lifespan)
+app = FastAPI(title=f"{APP_NAME} · 中控 v{APP_VERSION}", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
