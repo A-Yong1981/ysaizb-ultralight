@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import re
 import shutil
@@ -560,6 +561,7 @@ class LauncherApp(tk.Tk):
         self._make_status_pill(self.right_top, "hub", "中控: 未启动")
         self._make_status_pill(self.right_top, "obs", "OBS WS: 未连接")
         self._make_status_pill(self.right_top, "health", "🩺 诊断/工具箱", command=self.on_open_health_dialog)
+        self._make_status_pill(self.right_top, "guide", "🧸 傻瓜配置", command=self.on_open_config_wizard)
         self._make_status_pill(self.right_top, "mode", f"{t['label']} · Ultralight")
 
         self.top_sep = tk.Frame(self, bg=t["border"], height=1)
@@ -829,6 +831,7 @@ class LauncherApp(tk.Tk):
         ttk.Button(r3, text="添加视频到当前讲稿目录", command=self.on_add_video_to_kb_folder).pack(side="left", padx=4)
         ttk.Button(r3, text="🔄 重建检索索引", command=self.on_kb_reindex).pack(side="left", padx=4)
         ttk.Button(r3, text="🧪 测试问法检索", command=self.on_kb_test_search_dialog).pack(side="left", padx=4)
+        ttk.Button(r3, text="🎯 主题点播目录", command=self.on_open_topic_dialog).pack(side="left", padx=4)
         ttk.Button(r3, text="💾 保存知识库设置", style="Primary.TButton", command=self.on_save_kb).pack(side="right")
         self.var_kb_bg = tk.StringVar()
         self.var_kb_theme_dir = tk.StringVar(value="默认分类")
@@ -3161,6 +3164,334 @@ class LauncherApp(tk.Tk):
 
         ttk.Button(row, text="开始检索", command=_test).pack(side="right")
 
+    # ------------------------------------------------------------
+    # 🧸 傻瓜配置向导（与 WebUI 共用 ai-live-hub/config_guide.py 唯一真源）
+    # ------------------------------------------------------------
+    def _guide_apply(self, patch: Dict[str, Any], label: str, on_done=None) -> None:
+        import config_guide as cg
+
+        try:
+            res = cg.apply_patch(bk.HUB_DIR, bk.ROOT_DIR, patch)
+        except ValueError as exc:
+            messagebox.showerror("保存失败", str(exc))
+            return
+        if bk.is_port_open("127.0.0.1", 28910, 0.2):
+            bk.http_json("http://127.0.0.1:28910/api/reload", method="POST", timeout=5.0)
+        msg = f"{label}：{res['plain']}\n改动 {len(res['changed'])} 项：" + ("、".join(res["changed"][:12]) or "无变化")
+        if res.get("restart_engine") and bk.is_port_open("127.0.0.1", 8020, 0.2):
+            msg += "\n\n数字人引擎正在运行，请停止后重新开播，新的引擎设置才会生效。"
+        self.log(msg.replace("\n", " "))
+        messagebox.showinfo("已保存", msg)
+        if on_done:
+            on_done()
+
+    def on_open_config_wizard(self) -> None:
+        import config_guide as cg
+
+        win = tk.Toplevel(self)
+        self._theme_toplevel(win, "🧸 傻瓜配置向导 · 每项设置都有大白话解释", "920x680")
+        outer = ttk.Frame(win, padding=10)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text=f"按你的电脑推荐：{cg.HOST_PROFILE}", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 6))
+        nb = ttk.Notebook(outer)
+        nb.pack(fill="both", expand=True)
+
+        def _bundle() -> Dict[str, Any]:
+            return cg.guide_bundle(bk.HUB_DIR, bk.ROOT_DIR)
+
+        def _scroll_area(parent: tk.Misc) -> ttk.Frame:
+            cv = tk.Canvas(parent, highlightthickness=0, bg=self._theme()["card_bg"])
+            sb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview)
+            inner = ttk.Frame(cv)
+            inner.bind("<Configure>", lambda _e: cv.configure(scrollregion=cv.bbox("all")))
+            wid = cv.create_window((0, 0), window=inner, anchor="nw")
+            cv.bind("<Configure>", lambda e: cv.itemconfigure(wid, width=e.width))
+            cv.configure(yscrollcommand=sb.set)
+            cv.pack(side="left", fill="both", expand=True)
+            sb.pack(side="right", fill="y")
+            return inner
+
+        # ① 三问向导
+        tab1 = ttk.Frame(nb, padding=10)
+        nb.add(tab1, text="① 回答 3 个问题")
+        q_vars: Dict[str, tk.StringVar] = {}
+        q_maps: Dict[str, Dict[str, str]] = {}
+        for q in cg.WIZARD_QUESTIONS:
+            ttk.Label(tab1, text=q["q"], font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
+            labels = [o[1] for o in q["options"]]
+            q_maps[q["id"]] = {o[1]: o[0] for o in q["options"]}
+            v = tk.StringVar(value=labels[0])
+            q_vars[q["id"]] = v
+            ttk.Combobox(tab1, textvariable=v, values=labels, state="readonly", width=60).pack(anchor="w")
+        out1 = scrolledtext.ScrolledText(tab1, height=9, font=("Microsoft YaHei UI", 9), wrap="word")
+        self._style_scrolled_text(out1)
+
+        def _answers() -> Dict[str, str]:
+            return {k: q_maps[k].get(v.get(), "") for k, v in q_vars.items()}
+
+        def _preview() -> None:
+            res = cg.wizard(_answers())
+            out1.delete("1.0", "end")
+            out1.insert("1.0", "会这样配置：\n" + "\n".join(res["explain"]))
+
+        btn1 = ttk.Frame(tab1)
+        btn1.pack(fill="x", pady=8)
+        ttk.Button(btn1, text="先看看会改什么", command=_preview).pack(side="left")
+        ttk.Button(btn1, text="✅ 按我的回答一键配置", style="Primary.TButton",
+                   command=lambda: self._guide_apply(cg.wizard(_answers())["patch"], "三问向导", _refresh_all)).pack(side="left", padx=8)
+        out1.pack(fill="both", expand=True)
+
+        # ② 一键预设
+        tab2 = ttk.Frame(nb, padding=6)
+        nb.add(tab2, text="② 一键预设")
+        inner2 = _scroll_area(tab2)
+        for p in cg.PRESETS:
+            card = ttk.Frame(inner2, padding=8, style="Card.TFrame")
+            card.pack(fill="x", pady=4, padx=4)
+            ttk.Label(card, text=p["title"], font=("Microsoft YaHei UI", 10, "bold"), style="Card.TLabel").pack(anchor="w")
+            ttk.Label(card, text=p["plain"], wraplength=760, style="Card.TLabel").pack(anchor="w", pady=2)
+            ttk.Button(card, text="套用这个预设",
+                       command=lambda pid=p["id"], title=p["title"]: (
+                           messagebox.askyesno("确认", f"确定套用「{title}」吗？", parent=win)
+                           and self._guide_apply(cg.preset_patch(pid), title, _refresh_all))).pack(anchor="e")
+
+        # ③ 配置体检
+        tab3 = ttk.Frame(nb, padding=6)
+        nb.add(tab3, text="③ 配置体检")
+        top3 = ttk.Frame(tab3)
+        top3.pack(fill="x")
+        ttk.Button(top3, text="🔄 重新体检", command=lambda: _refresh_doctor()).pack(side="left")
+        ttk.Label(top3, text="按 12400F / 32GB / RTX 2080 的稳定红线检查当前配置").pack(side="left", padx=8)
+        body3 = ttk.Frame(tab3)
+        body3.pack(fill="both", expand=True, pady=6)
+        inner3 = _scroll_area(body3)
+        icons = {"error": "⛔", "warn": "⚠️", "info": "💡", "ok": "✅"}
+
+        def _refresh_doctor() -> None:
+            for w in inner3.winfo_children():
+                w.destroy()
+            for f in _bundle()["doctor"]:
+                card = ttk.Frame(inner3, padding=8, style="Card.TFrame")
+                card.pack(fill="x", pady=3, padx=4)
+                ttk.Label(card, text=f"{icons.get(f['level'], '')} {f['title']}", font=("Microsoft YaHei UI", 10, "bold"),
+                          style="Card.TLabel").pack(anchor="w")
+                ttk.Label(card, text=f["plain"], wraplength=760, style="Card.TLabel").pack(anchor="w")
+                if f.get("fix"):
+                    ttk.Button(card, text="一键修复",
+                               command=lambda fx=f["fix"], t=f["title"]: self._guide_apply(fx, f"修复：{t}", _refresh_all)).pack(anchor="e")
+
+        # ④ 逐项微调
+        tab4 = ttk.Frame(nb, padding=6)
+        nb.add(tab4, text="④ 逐项微调（含白话说明）")
+        top4 = ttk.Frame(tab4)
+        top4.pack(fill="x")
+        var_adv = tk.BooleanVar(value=False)
+        var_pro = tk.BooleanVar(value=False)
+        ttk.Checkbutton(top4, text="显示高级参数", variable=var_adv, command=lambda: _refresh_items()).pack(side="left")
+        ttk.Checkbutton(top4, text="显示专业说明", variable=var_pro, command=lambda: _refresh_items()).pack(side="left", padx=8)
+        body4 = ttk.Frame(tab4)
+        body4.pack(fill="both", expand=True, pady=6)
+        inner4 = _scroll_area(body4)
+        item_vars: Dict[str, Any] = {}
+
+        def _refresh_items() -> None:
+            for w in inner4.winfo_children():
+                w.destroy()
+            item_vars.clear()
+            last_group = ""
+            for it in _bundle()["items"]:
+                if it.get("level") != "basic" and not var_adv.get():
+                    continue
+                if it["group"] != last_group:
+                    last_group = it["group"]
+                    ttk.Label(inner4, text=last_group + ("（改完需重启数字人引擎）" if it.get("restart") else ""),
+                              font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(8, 2), padx=4)
+                card = ttk.Frame(inner4, padding=6, style="Card.TFrame")
+                card.pack(fill="x", pady=2, padx=4)
+                head = ttk.Frame(card, style="Card.TFrame")
+                head.pack(fill="x")
+                ttk.Label(head, text=it["label"], font=("Microsoft YaHei UI", 9, "bold"), style="Card.TLabel").pack(side="left")
+                cur = it.get("current")
+                if it["type"] == "bool":
+                    v = tk.BooleanVar(value=str(cur).lower() in ("true", "1"))
+                    ttk.Checkbutton(head, variable=v, style="Card.TCheckbutton").pack(side="right")
+                elif it["type"] == "choice":
+                    labels = [c[1] for c in it["choices"]]
+                    cur_label = next((c[1] for c in it["choices"] if str(c[0]) == str(cur)), labels[0])
+                    v = tk.StringVar(value=cur_label)
+                    ttk.Combobox(head, textvariable=v, values=labels, state="readonly", width=34).pack(side="right")
+                else:
+                    v = tk.StringVar(value="" if cur is None else str(cur))
+                    ttk.Spinbox(head, textvariable=v, from_=it.get("min", 0), to=it.get("max", 9999),
+                                increment=0.05 if it["type"] == "float" else 1, width=10).pack(side="right")
+                item_vars[it["key"]] = (it, v)
+                ttk.Label(card, text=it["plain"], wraplength=780, style="Card.TLabel").pack(anchor="w")
+                rec = it.get("recommend")
+                if it["type"] == "choice":
+                    rec = next((c[1] for c in it["choices"] if str(c[0]) == str(rec)), rec)
+                elif it["type"] == "bool":
+                    rec = "开" if rec else "关"
+                ttk.Label(card, text=f"推荐：{rec}" + ("（当前就是推荐值）" if it.get("is_recommended") else ""),
+                          style="Card.TLabel").pack(anchor="w")
+                if var_pro.get() and it.get("pro"):
+                    ttk.Label(card, text="专业说明：" + it["pro"], wraplength=780, style="Card.TLabel").pack(anchor="w")
+
+        def _save_items() -> None:
+            values: Dict[str, Any] = {}
+            for key, (it, v) in item_vars.items():
+                raw = v.get()
+                if it["type"] == "choice":
+                    raw = next((c[0] for c in it["choices"] if c[1] == raw), raw)
+                if it["type"] in ("int", "float") and str(raw).strip() == "":
+                    continue
+                values[key] = raw
+            try:
+                patch = cg.items_to_patch(values)
+            except ValueError as exc:
+                messagebox.showerror("输入有误", str(exc), parent=win)
+                return
+            self._guide_apply(patch, "逐项微调", _refresh_all)
+
+        ttk.Button(tab4, text="💾 保存修改", style="Primary.TButton", command=_save_items).pack(anchor="e")
+
+        def _refresh_all() -> None:
+            if win.winfo_exists():
+                _refresh_doctor()
+                _refresh_items()
+
+        _refresh_all()
+
+    # ------------------------------------------------------------
+    # 🎯 主题点播目录：按主题索引查看知识库、测试观众说法、手动点播
+    # ------------------------------------------------------------
+    def on_open_topic_dialog(self) -> None:
+        import asyncio as _aio
+
+        import config_guide as cg
+        from topic_router import TopicIndex
+
+        win = tk.Toplevel(self)
+        self._theme_toplevel(win, "🎯 观众点播主题目录（知识库按章节/小节自动整理）", "900x620")
+        frm = ttk.Frame(win, padding=10)
+        frm.pack(fill="both", expand=True)
+        hub_on = bk.is_port_open("127.0.0.1", 28910, 0.2)
+        ttk.Label(frm, text=("中控已运行：可以直接点“现在讲”插播主题。" if hub_on else
+                             "中控未运行：可以浏览目录、测试观众说法（只用关键词规则）；开播后才能插播。"),
+                  font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w")
+
+        cfg = json.loads((bk.HUB_DIR / "config.json").read_text(encoding="utf-8")) if (bk.HUB_DIR / "config.json").is_file() else {}
+        idx = TopicIndex(bk.KB_DIR, cfg.get("knowledge_base", {}))
+
+        top = ttk.Frame(frm)
+        top.pack(fill="x", pady=6)
+        v_filter = tk.StringVar()
+        ttk.Label(top, text="搜主题：").pack(side="left")
+        ent = ttk.Entry(top, textvariable=v_filter, width=30)
+        ent.pack(side="left", padx=4)
+        lbl_cnt = ttk.Label(top, text="")
+        lbl_cnt.pack(side="left", padx=8)
+
+        cols = ("doc", "beats", "kw")
+        tv = ttk.Treeview(frm, columns=cols, show="tree headings", height=14)
+        tv.heading("#0", text="主题")
+        tv.heading("doc", text="讲稿")
+        tv.heading("beats", text="段数")
+        tv.heading("kw", text="观众可能这样叫")
+        tv.column("#0", width=330)
+        tv.column("doc", width=210)
+        tv.column("beats", width=50, anchor="center")
+        tv.column("kw", width=260)
+        tv.pack(fill="both", expand=True)
+
+        def _fill() -> None:
+            idx.ensure_fresh(0)
+            q = v_filter.get().strip().lower()
+            tv.delete(*tv.get_children())
+            parents: Dict[str, str] = {}
+            shown = 0
+            for t in idx.catalog():
+                hay = (t["title"] + " " + " ".join(t["keywords"]) + " " + t["doc"]).lower()
+                if q and q not in hay:
+                    continue
+                parent = ""
+                if t["level"] == "section":
+                    parent = parents.get(t["tid"].rsplit("s", 1)[0], "")
+                iid = tv.insert(parent, "end", iid=t["tid"], text=t["title"], open=True,
+                                values=(t["doc"], t["beats"], "、".join(t["keywords"][:4])))
+                if t["level"] == "chapter":
+                    parents[t["tid"]] = iid
+                shown += 1
+            lbl_cnt.config(text=f"显示 {shown} / 共 {len(idx.topics)} 个主题")
+
+        v_filter.trace_add("write", lambda *_a: _fill())
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=6)
+
+        def _play() -> None:
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("提示", "先在目录里选一个主题", parent=win)
+                return
+            if not bk.is_port_open("127.0.0.1", 28910, 0.2):
+                messagebox.showwarning("提示", "需要先开播（启动中控 :28910）才能插播主题", parent=win)
+                return
+            code, res = bk.http_json("http://127.0.0.1:28910/api/topics/play", "POST", {"tid": sel[0], "user": "主播"}, timeout=8.0)
+            messagebox.showinfo("点播", (res or {}).get("msg", str(res)) if isinstance(res, dict) else str(res), parent=win)
+
+        def _stop() -> None:
+            if bk.is_port_open("127.0.0.1", 28910, 0.2):
+                bk.http_json("http://127.0.0.1:28910/api/topics/stop", "POST", {"clear_pending": True}, timeout=5.0)
+
+        def _rebuild() -> None:
+            idx.build()
+            if bk.is_port_open("127.0.0.1", 28910, 0.2):
+                bk.http_json("http://127.0.0.1:28910/api/topics/rebuild", "POST", {}, timeout=10.0)
+            _fill()
+
+        ttk.Button(btns, text="▶ 现在讲选中主题", style="Primary.TButton", command=_play).pack(side="left")
+        ttk.Button(btns, text="■ 停止当前点播", command=_stop).pack(side="left", padx=6)
+        ttk.Button(btns, text="🔄 重建目录", command=_rebuild).pack(side="left")
+
+        test = ttk.Frame(frm)
+        test.pack(fill="x", pady=(4, 2))
+        v_q = tk.StringVar(value="主播先讲讲怎么防止被骗钱")
+        ttk.Label(test, text="测试观众说法：").pack(side="left")
+        ttk.Entry(test, textvariable=v_q, width=46).pack(side="left", padx=4, fill="x", expand=True)
+        out = scrolledtext.ScrolledText(frm, height=7, font=("Microsoft YaHei UI", 9), wrap="word")
+        self._style_scrolled_text(out)
+
+        def _test() -> None:
+            q = v_q.get().strip()
+            if not q:
+                return
+            if bk.is_port_open("127.0.0.1", 28910, 0.2):
+                _c, res = bk.http_json("http://127.0.0.1:28910/api/topics/test", "POST", {"text": q, "use_ai": True}, timeout=12.0)
+                res = res if isinstance(res, dict) else {}
+                topic = (res.get("topic") or {}).get("title", "")
+            else:
+                r = _aio.run(idx.route(None, q, [], allow_ai=False))
+                res = {"is_request": r["is_request"], "method": r["method"], "reason": r["reason"], "candidates": r["candidates"]}
+                topic = (r.get("topic") or {}).get("title", "")
+            out.delete("1.0", "end")
+            if res.get("is_request"):
+                out.insert("1.0", f"✅ 会被当成点播（{res.get('method')}）→「{topic}」\n理由：{res.get('reason')}")
+                if topic:
+                    for iid in tv.get_children(""):
+                        for cid in (iid,) + tuple(tv.get_children(iid)):
+                            if tv.item(cid, "text") == topic:
+                                tv.selection_set(cid)
+                                tv.see(cid)
+            else:
+                cands = "、".join(f"「{c['title']}」{c['score']}" for c in (res.get("candidates") or [])[:3])
+                out.insert("1.0", f"➖ 不会整段点播：{res.get('reason')}（会按普通提问回答）\n最接近的主题：{cands or '无'}")
+
+        ttk.Button(test, text="测试会点到哪", command=_test).pack(side="right")
+        out.pack(fill="both", expand=False)
+        ttk.Label(frm, text=cg.KB_WRITING_TIPS.splitlines()[0] + "  加一行「> [主题词] 防骗|反诈」写上观众的叫法，点播更准。",
+                  wraplength=860).pack(anchor="w", pady=(4, 0))
+        _fill()
+
     def on_test_all_keys_cli(self) -> None:
         self.log("开始批量测试 config.json 全部 LLM / Embedding / TTS Key...")
         threading.Thread(
@@ -3638,6 +3969,14 @@ class LauncherApp(tk.Tk):
             if info.get("ok") and not info.get("has_audio"):
                 messagebox.showerror("无法从头训练", "检测到所选参考视频没有音轨！\nUltralight 本地训练需要真人开口说话的带声视频。\n如果你有训好的 .pth/.onnx 模型，请点击「📦 已有权重直封」。")
                 return
+
+        live_n = bk.engine_live_sessions()
+        if live_n > 0 and not messagebox.askyesno(
+            "正在直播，确定要训练吗？",
+            f"数字人引擎当前有 {live_n} 路直播画面在线。\n训练会占满 RTX 2080 显卡，可能让直播爆显存、画面卡死或断播。\n\n"
+            "建议下播后再训练。确定已经下播、现在就要训练吗？",
+        ):
+            return
 
         self._launch_train_worker(
             avatar_id=aid,
