@@ -289,11 +289,25 @@ def ensure_runtime_configs(hub_dir: Path) -> List[str]:
     return created
 
 
-def parse_env_bat(env_path: Path) -> Dict[str, str]:
+ENV_LOCAL_NAME = "env.local.bat"
+_SET_RE = re.compile(r'^\s*set\s+"([A-Za-z0-9_]+)=(.*)"\s*$', re.I)
+_ENV_LOCAL_HEADER = [
+    "@echo off",
+    "rem ===== your own settings (written by the desktop app / Easy Setup). Not tracked by git. =====",
+    "rem ===== env.bat calls this file, so values here override the defaults in env.bat. =====",
+    "rem ===== delete a line to go back to the default. =====",
+]
+
+
+def env_local_path(env_path: Path) -> Path:
+    return Path(env_path).with_name(ENV_LOCAL_NAME)
+
+
+def _read_set_lines(path: Path) -> Dict[str, str]:
     out: Dict[str, str] = {}
     try:
-        for line in Path(env_path).read_text(encoding="utf-8", errors="ignore").splitlines():
-            m = re.match(r'^\s*set\s+"([A-Za-z0-9_]+)=(.*)"\s*$', line, re.I)
+        for line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
+            m = _SET_RE.match(line)
             if m:
                 out[m.group(1)] = m.group(2)
     except OSError:
@@ -301,36 +315,42 @@ def parse_env_bat(env_path: Path) -> Dict[str, str]:
     return out
 
 
+def parse_env_bat(env_path: Path) -> Dict[str, str]:
+    """env.bat 默认值 + env.local.bat 个人设置（后者覆盖前者），与 cmd 实际生效的值一致。"""
+    out = _read_set_lines(Path(env_path))
+    out.update(_read_set_lines(env_local_path(env_path)))
+    return out
+
+
 def update_env_bat(env_path: Path, updates: Dict[str, str]) -> List[str]:
-    """替换已有 set "K=V"；不存在的键插到“Download mirrors”注释前。保持纯 ASCII + CRLF。"""
+    """个人设置只写入 env.local.bat（不进 git），env.bat 保持仓库原样 → 以后 git pull 不再冲突。
+    纯 ASCII + CRLF，原子写入；返回实际变化的键。"""
     env_path = Path(env_path)
-    if not env_path.exists() or not updates:
+    if not updates:
         return []
     for k, v in updates.items():
         if not re.fullmatch(r"[A-Za-z0-9_]+", k) or not str(v).isascii() or any(c in str(v) for c in '"&|<>^%\r\n'):
             raise ValueError(f"env.bat 参数不安全或含非 ASCII 字符: {k}={v}")
-    lines = env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    current = parse_env_bat(env_path)
+    local_p = env_local_path(env_path)
+    try:
+        lines = local_p.read_text(encoding="utf-8", errors="ignore").splitlines() if local_p.exists() else list(_ENV_LOCAL_HEADER)
+    except OSError:
+        lines = list(_ENV_LOCAL_HEADER)
     pending = {k: str(v) for k, v in updates.items()}
-    changed: List[str] = []
+    changed = [k for k, v in pending.items() if current.get(k) != v]
     new_lines: List[str] = []
     for line in lines:
-        m = re.match(r'^\s*set\s+"([A-Za-z0-9_]+)=(.*)"\s*$', line, re.I)
+        m = _SET_RE.match(line)
         if m and m.group(1) in pending:
-            k = m.group(1)
-            if m.group(2) != pending[k]:
-                changed.append(k)
-            new_lines.append(f'set "{k}={pending.pop(k)}"')
+            new_lines.append(f'set "{m.group(1)}={pending.pop(m.group(1))}"')
         else:
             new_lines.append(line)
-    if pending:
-        idx = next((i for i, l in enumerate(new_lines) if l.strip().lower().startswith("rem download mirrors")), len(new_lines))
-        for k, v in pending.items():
-            new_lines.insert(idx, f'set "{k}={v}"')
-            idx += 1
-            changed.append(k)
-    tmp = env_path.with_suffix(".bat.tmp")
+    for k, v in pending.items():
+        new_lines.append(f'set "{k}={v}"')
+    tmp = local_p.with_suffix(".bat.tmp")
     tmp.write_bytes(("\r\n".join(new_lines) + "\r\n").encode("ascii", errors="strict"))
-    os.replace(tmp, env_path)
+    os.replace(tmp, local_p)
     return changed
 
 

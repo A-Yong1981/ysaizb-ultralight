@@ -15,9 +15,13 @@
 - **U12（音画必须共用一个时钟）**：WebRTC 音频轨与视频轨的发送节奏必须以同一个会话时钟 t0（画面开始拉流时刻）为基准；禁止两条轨道各自从“第一次被拉取”开始计时——OBS/浏览器常先拉音频后拉画面，会让声音永久领先约一个前瞻缓冲（实测模拟 ~275ms，表现为“声音停了嘴还在动”）。残余固定延迟用 `UL_AV_OFFSET_MS` 微调。
 - **U13（预览绝不能抢 OBS）**：预览页 `/stage?preview=1` 一律以 `role=preview` 连接；OBS 已在推时引擎只建 `MirrorSession` 复用渲染帧（不推理、不占 `max_session`），中控只对 `role=main` 绑定说话会话；OBS 后到时引擎让临时当主画面的预览让位。预览开关 `/api/preview`（`ui.preview_enabled`）关闭时广播 `preview_update`，所有预览页断开并停止重连。
 - **U14（字幕调大必须换行不溢出）**：`#subtitle-box` 必须 `overflow-wrap:anywhere` + `box-sizing:border-box`；字号上限 80，按 `sub_max_lines` 判定行数，超出时 `paginate`（按标点分屏、每屏≈字数/4.6 秒）或 `shrink`（逐级缩小到 14px，仍放不下转分屏）。
+- **U15（代码绝不能改写被 git 管理的文件）**：个人设置一律写 `env.local.bat`（gitignore，env.bat 末尾 `call` 它），禁止程序改写 `env.bat`；`.bat` 在仓库中即 CRLF，`.gitattributes` 用 `-text` 原样存取（`text eol=crlf` 会让 git 永远误判已修改，导致 pull 被拒、打包出旧 EXE）。更新统一用 `06_update.bat`（`scripts/safe_update.py`：迁移个人设置 → 备份个人改动 → reset 到远端 → 还原 → 重新打包）；版本号唯一真源 `ai-live-hub/app_version.py`，桌面标题栏与网页控制台都显示。
 - **P01~P38 通用铁律**：`.bat` 纯 ASCII + CRLF、锁定 `websockets==12.0`、`requirements.txt` 不含 `torch`、`*.example.json` 无真实 Key、JSON 原子写入、不留 `.bak/_old/archive/`、全成人视角合规、`health_monitor.py` 纯规则探针。
 
 ## 2. 迭代记录
+- **2026-11-27（新版 EXE 看不到新功能：更新机制修复 + 网页控制台改名）**：
+  1. 根因：桌面程序每次启动改写 `env.bat` 与 `OBS配置/`，加上旧 `.gitattributes` 让 `.bat` 被误判已修改 → `git pull` 被拒，`build_exe.bat` 打包的仍是旧代码。修复：个人设置改写 `env.local.bat`；`.gitattributes` 改为 `*.bat -text`；新增 `06_update.bat` 一键安全更新并自动重新打包；新增版本号（v2026.11.27-r3）显示在桌面标题栏和网页控制台左上角。
+  2. 网页控制台「泳昇多模态直播平台」改为「泳昇 Ultralight 数字人直播平台」；`access-guide.html` 旧端口 :28900/:8010 改为 :28910/:8020；去掉网页和日志里的 LiveTalking 字样；控制台与舞台页禁缓存。
 - **2026-11-27（预览开关 + 字幕字号与自动换行）**：
   1. 预览开关：WebUI「直播画面预览」开关与桌面端「开启预览 / 🖥 看真实画面」共用 `/api/preview`；预览页在 OBS 开播时共享同一路画面（`MirrorSession`），模拟测试 OBS 与预览两路音画偏差均 0ms，中控说话会话始终留在 OBS。新增 `UL_MAX_PREVIEW`（默认 1）。
   2. 字幕：字号 14→80px，WebUI/桌面端加 A−/A＋；新增“最多几行 / 太长放不下时（分屏轮播·自动缩小）/ 最宽占屏幕%”；舞台页强制换行、分屏时长按语速估算（各屏累计≈整句朗读时长）；桌面详调预览按真实规则换行演示。

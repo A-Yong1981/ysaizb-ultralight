@@ -22,4 +22,5 @@
 - **有效训练素材要求**：本地训练 Ultralight UNet 时，视频**必须**包含正常真人说话音轨（无声闭嘴待机片不可用于从头训练；无音轨视频仅在传入 `--checkpoint` 封装外部 `.pth`/`.onnx` 时允许）。
 - **批处理编码铁律**：所有 `.bat` 脚本必须严格纯 ASCII + CRLF 换行（中文说明统一放 `scripts/msg/*.txt`）。
 - **配置安全与无备份残留**：`*.example.json` 严禁包含真实 API Key；禁止在工作区残留 `.bak` / `_old` / `archive/` 目录；所有 JSON 写入使用原子 `.tmp` + `os.replace`。
+- **不改写仓库文件**：程序运行时只能写 gitignore 里的文件（`env.local.bat`、`config.json`、`launcher_settings.json` 等），严禁改写 `env.bat` 等被 git 管理的文件；发版时同步更新 `ai-live-hub/app_version.py` 的 `APP_VERSION`。
 - **改完必测、必记**：任何改动后必须在 `ai-live-hub` 运行 `python tests/test_smoke.py` 和 `python tests/test_regressions.py` 并更新 `DEVLOG.md`。

@@ -85,6 +85,8 @@ def main() -> int:
         "--hidden-import",
         "config_guide",
         "--hidden-import",
+        "app_version",
+        "--hidden-import",
         "topic_router",
         "--hidden-import",
         "kb_engine",

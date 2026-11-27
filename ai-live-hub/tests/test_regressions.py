@@ -240,8 +240,10 @@ def test_config_guide_wizard_presets_doctor():
         assert res["restart_engine"] is True and res["changed"]
         env = config_guide.parse_env_bat(Path(td) / "env.bat")
         assert env["UL_ASR"] == "wenet" and env["UL_OUT_HEIGHT"] == "720" and env["UL_HOST"] == "127.0.0.1"
-        raw = (Path(td) / "env.bat").read_bytes()
-        assert raw.isascii() and b"\n" not in raw.replace(b"\r\n", b"")
+        # 个人设置写进 env.local.bat，env.bat 保持仓库原样（否则 git pull 会被拒绝）
+        assert (Path(td) / "env.bat").read_bytes() == (ROOT_DIR / "env.bat").read_bytes()
+        raw = (Path(td) / "env.local.bat").read_bytes()
+        assert raw.isascii() and b"\n" not in raw.replace(b"\r\n", b"") and b'set "UL_ASR=wenet"' in raw
         cfg = json.loads((hub / "config.json").read_text(encoding="utf-8"))
         assert cfg["knowledge_base"]["topic_router"]["detect_mode"] == "rules"
         try:
@@ -316,12 +318,37 @@ def test_subtitle_wrap_and_preview_switch():
     print("[PASS] test_subtitle_wrap_and_preview_switch")
 
 
+def test_safe_update_and_version():
+    """一键更新：.bat 原样存取不被误判已修改；个人设置在 env.local.bat；更新脚本跳过生成文件并显示版本号。"""
+    ga = (ROOT_DIR / ".gitattributes").read_text(encoding="utf-8")
+    assert "*.bat -text" in ga and "eol=crlf" not in ga and "eol=lf" not in ga
+    env_txt = (ROOT_DIR / "env.bat").read_text(encoding="ascii")
+    assert 'if exist "%~dp0env.local.bat" call "%~dp0env.local.bat"' in env_txt
+    assert env_txt.index("env.local.bat") < env_txt.index("Download mirrors")
+    assert "env.local.bat" in (ROOT_DIR / ".gitignore").read_text(encoding="utf-8")
+    bk_txt = (ROOT_DIR / "launcher" / "backend.py").read_text(encoding="utf-8")
+    assert "ENV_BAT_PATH.with_suffix" not in bk_txt and "_cg.update_env_bat(ENV_BAT_PATH" in bk_txt
+    su = (ROOT_DIR / "scripts" / "safe_update.py").read_text(encoding="utf-8")
+    for key in ("migrate_env_customizations", '"stash", "push"', '"reset", "--hard"', '"stash", "pop"', "exe_running", "GENERATED_PREFIXES"):
+        assert key in su, key
+    bat = (ROOT_DIR / "06_update.bat").read_bytes()
+    assert bat.isascii() and b"safe_update.py" in bat
+    import app_version
+
+    assert re.fullmatch(r"\d{4}\.\d{2}\.\d{2}-r\d+", app_version.APP_VERSION)
+    assert "APP_VERSION" in (ROOT_DIR / "launcher" / "app.py").read_text(encoding="utf-8")
+    assert "app_version" in (HUB_DIR / "server.py").read_text(encoding="utf-8")
+    assert 'id="app-ver"' in (HUB_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    print(f"[PASS] test_safe_update_and_version (v{app_version.APP_VERSION})")
+
+
 if __name__ == "__main__":
     test_topic_router_viewer_requests()
     test_config_guide_wizard_presets_doctor()
     test_engine_security_and_perf_contracts()
     test_obs_presets_25fps()
     test_subtitle_wrap_and_preview_switch()
+    test_safe_update_and_version()
     test_u_port_and_obs_isolation()
     test_p01_bat_pure_ascii_crlf()
     test_p04_requirements_hygiene()

@@ -35,6 +35,10 @@ set "UL_MAX_PREVIEW=1"
 set "UL_PORT=8020"
 set "HUB_PORT=28910"
 
+rem ---- your own settings live in env.local.bat (written by the desktop app / Easy Setup, not tracked by git) ----
+rem ---- so "git pull" / 06_update.bat never conflicts with your avatar, voice or tuning choices ----
+if exist "%~dp0env.local.bat" call "%~dp0env.local.bat"
+
 rem Download mirrors
 set "PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"
 set "CONDA_FORGE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge"
