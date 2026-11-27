@@ -35,6 +35,8 @@ def test_u_port_and_obs_isolation():
         HUB_DIR / "danmaku_relay.py",
         HUB_DIR / "tiktok_relay.py",
         HUB_DIR / "static" / "index.html",
+        HUB_DIR / "static" / "overlay.html",
+        HUB_DIR / "static" / "access-guide.html",
         ROOT_DIR / "launcher" / "backend.py",
         ROOT_DIR / "launcher" / "app.py",
         ROOT_DIR / "engine" / "ultralight_server.py",
@@ -44,6 +46,13 @@ def test_u_port_and_obs_isolation():
         txt = p.read_text(encoding="utf-8")
         assert "127.0.0.1:28900" not in txt, f"{p.name} still references legacy hub port 28900"
         assert "127.0.0.1:8010" not in txt, f"{p.name} still references legacy engine port 8010"
+
+    # 网页控制台与桌面端统一用 Ultralight 名称，不再显示旧方案「泳昇多模态直播平台」/ LiveTalking
+    idx_txt = (HUB_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    assert "泳昇 Ultralight 数字人直播平台" in idx_txt and "泳昇多模态直播平台" not in idx_txt
+    for p in (HUB_DIR / "static" / "index.html", HUB_DIR / "static" / "access-guide.html"):
+        assert "LiveTalking" not in p.read_text(encoding="utf-8"), f"{p.name} still shows legacy LiveTalking wording"
+    assert "NO_CACHE" in (HUB_DIR / "server.py").read_text(encoding="utf-8")
 
     pm_txt = (HUB_DIR / "profile_manager.py").read_text(encoding="utf-8")
     bk_txt = (ROOT_DIR / "launcher" / "backend.py").read_text(encoding="utf-8")

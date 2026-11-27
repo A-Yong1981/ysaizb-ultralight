@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>泳昇数字人 · AI Live Stage & Overlay</title>
+  <title>泳昇 Ultralight 数字人直播平台 · 直播舞台</title>
   <style>
     /* 预设免费开源无商业授权风险字体 (SIL OFL 1.1) */
     @font-face {
@@ -437,7 +437,7 @@
         pc.onconnectionstatechange = null;
         try { pc.close(); } catch (_) {}
         pc = null;
-        // 给 LiveTalking 800ms 释放旧会话，避免与 max_session 冲突
+        // 给数字人引擎 800ms 释放旧会话，避免与 max_session 冲突
         await new Promise(r => setTimeout(r, 800));
         if (seq !== connectSeq) return;
       }
