@@ -46,8 +46,13 @@ from overlay_presets import (
     OVERLAY_FONT_PRESETS,
     sanitize_overlay_cfg,
 )
+from topic_router import TopicIndex, fill_template, has_request_intent
+import config_guide
 
 BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent
+# 全新克隆 / 首次运行：缺 config.json、platform_profiles.json 时自动从 *.example.json 复制
+config_guide.ensure_runtime_configs(BASE_DIR)
 CONFIG_PATH = BASE_DIR / "config.json"
 MODERATION_PATH = BASE_DIR / "moderation.json"
 WARMUP_PATH = BASE_DIR / "warmup_topics.json"
@@ -115,6 +120,13 @@ class LiveState:
         self.kb_mode_override: Optional[bool] = None   # WebUI 临时切换「章节连播 / 仅答疑」，切平台时复位
         self.beats_since_warmup: int = 0
         self.converting: bool = False
+
+        # 观众主题点播（插播计划）：礼物 > 点播 > 普通提问 > 章节连播
+        self.topic_active: Optional[Dict[str, Any]] = None
+        self.topic_pending: deque = deque()
+        self.topic_last_played: Dict[str, float] = {}
+        self.topic_beats_since_answer: int = 0
+        self.tts_prefetching: set = set()
 
         # 健康诊断与响应提速
         self.last_tts_tag: str = ""
@@ -197,6 +209,7 @@ class LiveState:
             # 知识库
             "kb": kb_snapshot(),
             "kb_board": render_board(kb_engine.last_board) if narration_active() else None,
+            "topic": topic_snapshot(),
             "converting": self.converting,
             # TTS
             "tts_mode": tts_cfg.get("mode", "edgetts"),
@@ -216,6 +229,7 @@ class LiveState:
 
 state = LiveState()
 kb_engine = KnowledgeBaseEngine(BASE_DIR / "kb_data", state.config.get("knowledge_base", {}))
+topic_index = TopicIndex(BASE_DIR / "kb_data", state.config.get("knowledge_base", {}))
 http_client: Optional[httpx.AsyncClient] = None
 
 
@@ -272,10 +286,7 @@ def persona_name() -> str:
 
 def T(key: str, **kw: Any) -> str:
     tpl = (plat().get("texts") or {}).get(key) or LANG_TEXT[plat_lang()][key]
-    try:
-        return tpl.format(**kw)
-    except Exception:
-        return tpl
+    return fill_template(tpl, **kw)   # 不用 str.format：平台配置里的模板不能做属性注入
 
 
 def fill_name(text: str) -> str:
@@ -609,6 +620,161 @@ async def kb_load_for_platform(reset_cursor: bool) -> str:
     mode = "bge-m3 向量+词法" if res.get("vectorized") else "CPU 词法"
     return (f"讲稿 [{doc}] {res.get('chapters', 0)} 章 / {res.get('chunks', 0)} 段 / FAQ {res.get('faqs', 0)} 条，"
             f"从第 {res.get('cursor', 0) + 1} 段讲（{res.get('msg')}，{mode}）")
+
+
+# ============================================================
+# 观众主题点播：按主题索引调取知识库 → AI/规则判定点播 → 插播口播 → 讲完自动回原章节
+# ============================================================
+def topic_sync_cfg() -> None:
+    topic_index.update_config(kb_cfg_effective())
+
+
+def llm_providers_ready() -> List[Dict[str, Any]]:
+    return [p for p in state.config.get("llm_providers", [])
+            if p.get("enabled") and not is_placeholder_key(p.get("api_key"))]
+
+
+def topic_snapshot() -> Dict[str, Any]:
+    a = state.topic_active
+    cfg = topic_index.cfg
+    return {
+        "enabled": bool(cfg.get("enabled", True)),
+        "detect_mode": cfg.get("detect_mode", "auto"),
+        "ai_ready": bool(llm_providers_ready()),
+        "total_topics": len(topic_index.topics),
+        "active": ({"tid": a["tid"], "title": a["title"], "user": a["user"], "idx": a["idx"],
+                    "total": len(a["beats"]), "source": a.get("source", "")} if a else None),
+        "pending": [{"tid": p["tid"], "title": p["title"], "user": p["user"]} for p in state.topic_pending],
+    }
+
+
+async def topic_route(text: str) -> Dict[str, Any]:
+    topic_sync_cfg()
+    return await topic_index.route(http_client, text, llm_providers_ready(), active_doc=kb_engine.active_doc)
+
+
+async def soft_interrupt_for_priority() -> None:
+    """礼物 / 点播 / 互动：柔和打断当前讲稿、暖场或点播段落，之后自动从断点接着讲。"""
+    if not (state.config.get("scheduler", {}).get("gift_interrupt_narration", True) and state.is_speaking):
+        return
+    kind = state.current_speech_kind
+    if kind not in ("narration", "warmup", "topic"):
+        return
+    if kind == "topic" and state.topic_active:
+        # 被打断的这段点播内容稍后重讲，并加一句“咱们接着说……”
+        state.topic_active["idx"] = max(0, int(state.topic_active["idx"]) - 1)
+        state.topic_active["resume_needed"] = True
+    elif narration_active():
+        kb_engine.mark_interrupted()
+    await lt_interrupt()
+
+
+def schedule_tts_prefetch(text: str, max_chars: Optional[int] = None) -> None:
+    """克隆声音模式下，提前把“下一段”合成进缓存：当前段一播完，下一段几乎零等待开口。"""
+    tts_cfg = effective_tts_cfg()
+    if tts_cfg.get("mode", "edgetts") == "edgetts" or not tts_cfg.get("enable_cache", True) or http_client is None:
+        return
+    clean = sanitize_speech_text(fill_name(text), max_chars)
+    if not clean or clean in state.tts_prefetching or len(state.tts_prefetching) >= 2:
+        return
+    state.tts_prefetching.add(clean)
+
+    async def _run() -> None:
+        try:
+            await tts_engine.synthesize(http_client, tts_cfg, clean, use_cache=True)
+        except Exception:
+            pass
+        finally:
+            state.tts_prefetching.discard(clean)
+
+    asyncio.create_task(_run())
+
+
+async def start_topic(tid: str, user: str, source: str = "弹幕点播") -> Dict[str, Any]:
+    topic_sync_cfg()
+    cfg = topic_index.cfg
+    t = topic_index.by_id.get(tid)
+    if not t:
+        return {"code": 1, "msg": "知识库里没有这个主题"}
+    if state.topic_active and state.topic_active["tid"] == tid:
+        return {"code": 0, "msg": "already_playing", "title": t["title"]}
+    if any(p["tid"] == tid for p in state.topic_pending):
+        return {"code": 0, "msg": "already_queued", "title": t["title"]}
+    plan = topic_index.build_plan(tid, user=user)
+    if not plan or not plan["beats"]:
+        return {"code": 1, "msg": "该主题没有可口播的段落"}
+    plan["source"] = source
+    if state.topic_active:
+        if len(state.topic_pending) >= int(cfg.get("max_pending", 3)):
+            await state.add_log("warn", f"[主题点播] 排队已满，忽略 {user} 点播「{t['title']}」")
+            return {"code": 1, "msg": "点播排队已满"}
+        state.topic_pending.append(plan)
+        ack = fill_template(cfg.get("queued_template", ""), user=user, title=t["title"])
+        if ack:
+            await lt_send_speech(ack, question_banner=f"{user} 点播 · {t['title']}", speech_kind="reply")
+        await state.add_log("info", f"[主题点播] {user} 点播「{t['title']}」已排队（第 {len(state.topic_pending)} 个）")
+        await state.broadcast("topic_update", topic_snapshot())
+        return {"code": 0, "msg": "queued", "title": t["title"]}
+    if narration_active():
+        kb_engine.mark_interrupted()   # 点播讲完后，主讲稿自动“回到「原章节」接着讲”
+    state.topic_active = plan
+    state.topic_beats_since_answer = 0
+    await state.add_log("info", f"[主题点播] {source}：{user} →「{t['title']}」"
+                                f"（{len(plan['beats'])} 段，来自 {t['doc']}）")
+    await state.broadcast("topic_update", topic_snapshot())
+    await state.broadcast("status", state.snapshot())
+    state.notify_wake()
+    return {"code": 0, "msg": "started", "title": t["title"], "beats": len(plan["beats"])}
+
+
+async def finish_topic(reason: str = "讲完") -> None:
+    a = state.topic_active
+    if a:
+        state.topic_last_played[a["tid"]] = time.time()
+        await state.add_log("info", f"[主题点播] 「{a['title']}」{reason}")
+    state.topic_active = state.topic_pending.popleft() if state.topic_pending else None
+    state.topic_beats_since_answer = 0
+    if state.topic_active is None and narration_active():
+        await state.broadcast("board_update", render_board(kb_engine.last_board))
+    await state.broadcast("topic_update", topic_snapshot())
+    await state.broadcast("status", state.snapshot())
+
+
+async def play_next_topic_beat() -> bool:
+    plan = state.topic_active
+    if not plan:
+        return False
+    if plan["idx"] >= len(plan["beats"]):
+        await finish_topic()
+        return True
+    beat = plan["beats"][plan["idx"]]
+    text = beat["text"]
+    resumed = bool(plan.get("resume_needed")) and not beat.get("outro")
+    if resumed:
+        text = fill_template(topic_index.cfg.get("resume_template", ""), title=plan["title"], user=plan["user"]) + text
+    max_chars = int(kb_cfg_effective().get("max_narration_chars", 240))
+    ok = await lt_send_speech(
+        text,
+        question_banner=f"{plan['user']} 点播 · {plan['title']}",
+        cacheable=(plan["idx"] > 0 and not resumed and not beat.get("outro")),
+        max_chars=max_chars,
+        speech_kind="topic",
+    )
+    if ok:
+        plan["idx"] += 1
+        plan["resume_needed"] = False
+        plan["fails"] = 0
+        state.topic_beats_since_answer += 1
+        state.last_idle_since = time.time()
+        await state.broadcast("board_update", render_board(beat["board"]))
+        await state.broadcast("topic_update", topic_snapshot())
+        if plan["idx"] < len(plan["beats"]) and not plan["beats"][plan["idx"]].get("outro"):
+            schedule_tts_prefetch(plan["beats"][plan["idx"]]["text"], max_chars)
+    else:
+        plan["fails"] = int(plan.get("fails", 0)) + 1
+        if plan["fails"] >= 3:
+            await finish_topic("连续 3 次播报失败，已中止")
+    return True
 
 
 def sanitize_speech_text(text: str, limit: Optional[int] = None) -> str:
@@ -1102,12 +1268,25 @@ async def scheduler_loop() -> None:
 
             if not speaking and state.session_id:
                 item = None
+                topic_turn = False
+                tcfg = topic_index.cfg
                 if state.priority_queue:
                     item = state.priority_queue.popleft()
+                elif state.topic_active:
+                    # 点播讲解中：每讲 N 段穿插回答一条观众提问，再“咱们接着说……”
+                    can_answer = (bool(state.normal_queue) and sched.get("auto_reply", True)
+                                  and tcfg.get("answer_during_topic", True)
+                                  and state.topic_beats_since_answer >= int(tcfg.get("answer_every_n_beats", 2)))
+                    if can_answer:
+                        item = state.normal_queue.popleft()
+                    else:
+                        topic_turn = True
                 elif state.normal_queue and sched.get("auto_reply", True):
                     item = state.normal_queue.popleft()
 
-                if item:
+                if topic_turn:
+                    await play_next_topic_beat()
+                elif item:
                     if narration_active():
                         kb_engine.mark_interrupted()   # 答完自动回到原章节断点续讲
                     kind = item.get("kind", "chat")
@@ -1123,10 +1302,7 @@ async def scheduler_loop() -> None:
                         gift_num = item.get("gift_num", 1)
                         inter = match_gift_interaction("gift", gift_item=gift_name)
                         tpl = (inter or {}).get("reply") or T("gift", user=user, num=gift_num, gift=gift_name)
-                        try:
-                            reply = tpl.format(user=user, num=gift_num, gift=gift_name)
-                        except Exception:
-                            reply = T("gift", user=user, num=gift_num, gift=gift_name)
+                        reply = fill_template(tpl, user=user, num=gift_num, gift=gift_name)
                         await lt_send_speech(
                             reply,
                             question_banner=T("gift_banner", user=user, num=gift_num, gift=gift_name),
@@ -1160,6 +1336,31 @@ async def scheduler_loop() -> None:
                             await state.broadcast("status", state.snapshot())
                             await _sleep_or_wake(poll_sec)
                             continue
+                        # 主题点播：观众要求“先讲/讲讲/想听”知识库里已有的主题 → 整段推给数字人口播
+                        if kb_cfg_effective().get("enabled", True) and topic_index.cfg.get("enabled", True):
+                            tr_res = await topic_route(text)
+                            if tr_res.get("is_request") and tr_res.get("tid"):
+                                tid = tr_res["tid"]
+                                title = tr_res["topic"]["title"]
+                                ago = time.time() - state.topic_last_played.get(tid, 0.0)
+                                if ago >= float(topic_index.cfg.get("cooldown_sec", 300)):
+                                    await state.add_log("info", f"[主题点播识别·{tr_res['method']}] {user}：{text} →「{title}」（{tr_res['reason']}）")
+                                    res = await start_topic(tid, user)
+                                    if res.get("msg") == "started":
+                                        await play_next_topic_beat()
+                                    await state.broadcast("status", state.snapshot())
+                                    await _sleep_or_wake(poll_sec)
+                                    continue
+                                recap = topic_index.recap_text(tid, user=user)
+                                await state.add_log("info", f"[主题点播] 「{title}」{int(ago)} 秒前刚讲过，这次只回顾重点")
+                                if recap:
+                                    await lt_send_speech(recap, question_banner=f"{user} 点播 · {title}",
+                                                         speech_kind="reply")
+                                    if state.topic_active:
+                                        state.topic_active["resume_needed"] = True
+                                    await state.broadcast("status", state.snapshot())
+                                    await _sleep_or_wake(poll_sec)
+                                    continue
                         route = match_action_route(text)
                         audiotype = route["audiotype"] if route else None
                         hint = route["reply_hint"] if route else ""
@@ -1194,6 +1395,9 @@ async def scheduler_loop() -> None:
                             reply, question_banner=f"{user}：{text}", audiotype=audiotype,
                             cacheable=bool(hits is None and not route), speech_kind="reply",
                         )
+                        if state.topic_active:
+                            state.topic_active["resume_needed"] = True
+                            state.topic_beats_since_answer = 0
                     await state.broadcast("status", state.snapshot())
 
                 # 2. 知识库章节主动解说（断点续讲 + OBS 板书联动，每 N 段穿插一句平台互动话术）
@@ -1233,6 +1437,9 @@ async def scheduler_loop() -> None:
                                     kb_engine.save_cursors()
                                     state.beats_since_warmup += 1
                                     state.last_idle_since = time.time()
+                                    nxt = kb_engine.peek_beat()
+                                    if nxt and not nxt.get("resumed") and not nxt.get("course_restart"):
+                                        schedule_tts_prefetch(nxt["text"], int(kbc.get("max_narration_chars", 240)))
                                     await state.broadcast("board_update", render_board(beat["board"]))
                                     await state.broadcast("status", state.snapshot())
 
@@ -1312,11 +1519,20 @@ async def lifespan(_: FastAPI):
     except Exception as exc:
         kb_boot_msg = f"加载讲稿失败: {exc}"
     apply_platform_runtime()
+    try:
+        topic_sync_cfg()
+        topic_index.ensure_fresh(0)
+        topic_boot_msg = (f"主题点播目录：{len(topic_index.topics)} 个主题（来自 {len(topic_index.list_docs())} 份讲稿），"
+                          f"识别方式={topic_index.cfg.get('detect_mode', 'auto')}，"
+                          f"AI 复核{'可用' if llm_providers_ready() else '不可用（未配 Key，自动降级关键词规则）'}")
+    except Exception as exc:
+        topic_boot_msg = f"主题点播目录构建失败: {exc}"
     scheduler_task = asyncio.create_task(scheduler_loop())
     wd_task = asyncio.create_task(prof_mgr.watchdog(state.add_log))
     h_task = asyncio.create_task(health_loop())
     await state.add_log("info", "泳昇数字人 · AI 无人直播中控网关已启动")
     await state.add_log("info", kb_boot_msg)
+    await state.add_log("info", topic_boot_msg)
     await state.add_log(
         "info",
         f"当前平台预设: {plat().get('label', prof_mgr.active_key)}（弹幕采集器需在 WebUI 点「一键切播」后启动）",
@@ -1727,15 +1943,8 @@ async def ingest_danmaku(payload: Dict[str, Any]):
         inter = match_gift_interaction("gift", gift_item=item["gift_item"])
         if inter:
             await broadcast_play_action(inter, user=user, gift_item=item["gift_item"], gift_num=item["gift_num"])
-        # 2. 若当前正在播普通讲稿/暖场，柔和打断让礼物 1 秒内回应（不打断其他观众问答）
-        if (
-            state.config.get("scheduler", {}).get("gift_interrupt_narration", True)
-            and state.is_speaking
-            and state.current_speech_kind in ("narration", "warmup")
-        ):
-            if narration_active():
-                kb_engine.mark_interrupted()
-            await lt_interrupt()
+        # 2. 若当前正在播讲稿/暖场/点播段落，柔和打断让礼物 1 秒内回应（不打断其他观众问答）
+        await soft_interrupt_for_priority()
         state.notify_wake()
         await state.add_log("gift", f"[礼物] {user} 送出 {item['gift_item']} x{item['gift_num']}")
         await state.broadcast("status", state.snapshot())
@@ -1754,14 +1963,7 @@ async def ingest_danmaku(payload: Dict[str, Any]):
             safe = (kb_engine.match_direct_faq(text) if kb_ready() else None) or match_safety_faq(text)
         if safe:
             state.priority_queue.append({"kind": "safe_faq", "user": user, "answer": safe["answer"]})
-            if (
-                state.config.get("scheduler", {}).get("gift_interrupt_narration", True)
-                and state.is_speaking
-                and state.current_speech_kind in ("narration", "warmup")
-            ):
-                if narration_active():
-                    kb_engine.mark_interrupted()
-                await lt_interrupt()
+            await soft_interrupt_for_priority()
             state.notify_wake()
             await state.add_log("warn", f"[安全直出] {user} 命中屏蔽词，改念讲稿安全答案「{safe['keyword']}」（{reason}）")
             await state.broadcast("status", state.snapshot())
@@ -1772,18 +1974,26 @@ async def ingest_danmaku(payload: Dict[str, Any]):
     max_q = int(state.config.get("scheduler", {}).get("max_queue_size", 30))
     if len(state.normal_queue) >= max_q:
         state.normal_queue.popleft()
-    state.normal_queue.append({"kind": "chat", "user": user, "text": text})
+    chat_item = {"kind": "chat", "user": user, "text": text}
+    state.normal_queue.append(chat_item)
     inter = match_gift_interaction("chat", text=text)
     if inter:
         await broadcast_play_action(inter, user=user)
-        if (
-            state.config.get("scheduler", {}).get("gift_interrupt_narration", True)
-            and state.is_speaking
-            and state.current_speech_kind in ("narration", "warmup")
-        ):
-            if narration_active():
-                kb_engine.mark_interrupted()
-            await lt_interrupt()
+        await soft_interrupt_for_priority()
+    elif kb_cfg_effective().get("enabled", True) and state.current_speech_kind in ("narration", "warmup"):
+        # 说法明确的主题点播（如“先讲讲防骗”）不调 AI 秒判：插到队首并柔和打断讲稿，1~2 秒内开讲
+        topic_sync_cfg()
+        qc = topic_index.quick_check(text, kb_engine.active_doc)
+        in_cooldown = bool(qc) and (time.time() - state.topic_last_played.get(qc["tid"], 0.0)
+                                    < float(topic_index.cfg.get("cooldown_sec", 300)))
+        if qc and not in_cooldown:
+            try:
+                state.normal_queue.remove(chat_item)
+            except ValueError:
+                pass
+            state.normal_queue.appendleft(chat_item)
+            await state.add_log("info", f"[主题点播] {user} 想听「{qc['title']}」，先停下当前讲稿")
+            await soft_interrupt_for_priority()
     state.notify_wake()
     await state.add_log("danmaku", f"[弹幕] {user}: {text}")
     await state.broadcast("status", state.snapshot())
@@ -1924,8 +2134,9 @@ async def update_settings(patch: Dict[str, Any]):
 async def clear_queue():
     state.priority_queue.clear()
     state.normal_queue.clear()
+    state.topic_pending.clear()
     await state.broadcast("status", state.snapshot())
-    await state.add_log("info", "已清空待回复弹幕队列")
+    await state.add_log("info", "已清空待回复弹幕队列与排队中的点播主题")
     return {"code": 0}
 
 
@@ -1935,6 +2146,8 @@ async def reload_config():
     prof_mgr.reload()
     kb_msg = await kb_load_for_platform(reset_cursor=False)
     apply_platform_runtime()
+    topic_sync_cfg()
+    topic_index.ensure_fresh(0)
     _OBS_PROBE["pending_push"] = True
     _OBS_PROBE["lock_until"] = time.time() + 10.0
     _OBS_PROBE["scene"] = ""
@@ -2110,6 +2323,7 @@ async def api_create_avatar(
     epochs: int = Form(100),
     batch_size: int = Form(16),
     ckpt_file: Optional[UploadFile] = File(None),
+    force: str = Form(""),
 ):
     """代理调用 Ultralight 引擎 POST /api/avatar/task（提交预处理 + 训练/权重导入 + ONNX 导出任务）"""
     avatar_id = re.sub(r"[^a-zA-Z0-9_\-]", "", avatar_id.strip())
@@ -2128,10 +2342,13 @@ async def api_create_avatar(
         "asr": asr_clean,
         "epochs": str(max(1, min(500, int(epochs)))),
         "batch_size": str(max(1, min(32, int(batch_size)))),
+        "force": "1" if str(force).strip().lower() in ("1", "true", "yes", "on") else "",
     }
+    token = str(os.environ.get("UL_API_TOKEN") or state.config.get("ultralight", {}).get("api_token") or "").strip()
     try:
         resp = await http_client.post(
-            lt_url("/api/avatar/task"), files=files, data=data, timeout=120.0
+            lt_url("/api/avatar/task"), files=files, data=data, timeout=120.0,
+            headers={"X-UL-Token": token} if token else None,
         )
         res = resp.json()
         if res.get("code") == 0:
@@ -2561,6 +2778,118 @@ async def api_kb_convert(
 # ============================================================
 # 健康诊断：手动复检 / 紧急解锁
 # ============================================================
+# ============================================================
+# 主题点播 API（WebUI / 桌面端：目录、问法测试、手动点播、停止）
+# ============================================================
+def _topic_brief(t: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not t:
+        return None
+    return {"tid": t["tid"], "title": t["title"], "doc": t["doc"], "level": t["level"],
+            "chapter": t["chapter"], "section": t["section"], "beats": len(t["chunks"]), "summary": t["summary"]}
+
+
+@app.get("/api/topics")
+async def api_topics():
+    topic_sync_cfg()
+    topic_index.ensure_fresh(0)
+    return {"code": 0, "catalog": topic_index.catalog(), "built_at": topic_index.built_at,
+            "status": topic_snapshot(), "tips": config_guide.KB_WRITING_TIPS}
+
+
+@app.post("/api/topics/rebuild")
+async def api_topics_rebuild():
+    topic_sync_cfg()
+    res = topic_index.build()
+    await state.add_log("info", f"已重建主题点播目录：{res['topics']} 个主题 / {res['docs']} 份讲稿")
+    await state.broadcast("topic_update", topic_snapshot())
+    return {"code": 0, **res}
+
+
+@app.post("/api/topics/test")
+async def api_topics_test(payload: Dict[str, Any]):
+    """问法测试：看一条弹幕会不会被识别成点播、点中哪个主题、为什么（可选是否真的调用 AI）。"""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return {"code": 1, "msg": "请输入要测试的观众弹幕"}
+    use_ai = bool(payload.get("use_ai", True))
+    topic_sync_cfg()
+    res = await topic_index.route(http_client, text, llm_providers_ready() if use_ai else [],
+                                  active_doc=kb_engine.active_doc, allow_ai=use_ai)
+    plan = topic_index.build_plan(res["tid"], user="测试观众") if res.get("tid") else None
+    return {"code": 0, "is_request": res["is_request"], "method": res["method"], "score": res["score"],
+            "reason": res["reason"], "phrase": res["phrase"], "topic": _topic_brief(res.get("topic")),
+            "candidates": res["candidates"][:5], "ai": res.get("ai"),
+            "first_beat": plan["beats"][0]["text"] if plan and plan["beats"] else ""}
+
+
+@app.post("/api/topics/play")
+async def api_topics_play(payload: Dict[str, Any]):
+    tid = str(payload.get("tid") or "").strip()
+    user = str(payload.get("user") or "主播").strip() or "主播"
+    topic_sync_cfg()
+    topic_index.ensure_fresh(0)
+    res = await start_topic(tid, user, source="主播手动点播")
+    if res.get("msg") == "started":
+        await soft_interrupt_for_priority()
+    return res
+
+
+@app.post("/api/topics/stop")
+async def api_topics_stop(payload: Optional[Dict[str, Any]] = None):
+    if (payload or {}).get("clear_pending", True):
+        state.topic_pending.clear()
+    if state.topic_active:
+        await finish_topic("已被主播手动停止")
+        if state.current_speech_kind == "topic":
+            await lt_interrupt()
+    return {"code": 0, "status": topic_snapshot()}
+
+
+# ============================================================
+# 傻瓜配置向导 API（白话说明 / 一键预设 / 三问向导 / 配置体检一键修复）
+# ============================================================
+@app.get("/api/guide")
+async def api_guide():
+    topic_sync_cfg()
+    topic_index.ensure_fresh()
+    return {"code": 0, **config_guide.guide_bundle(BASE_DIR, ROOT_DIR, topic_count=len(topic_index.topics))}
+
+
+@app.post("/api/guide/wizard")
+async def api_guide_wizard(payload: Dict[str, Any]):
+    """只预览，不保存：返回向导组合出的配置与白话解读。"""
+    return {"code": 0, **config_guide.wizard(payload.get("answers") or {})}
+
+
+@app.post("/api/guide/apply")
+async def api_guide_apply(payload: Dict[str, Any]):
+    """支持 {"preset": id} | {"wizard": {...answers}} | {"values": {"env.UL_BATCH": 4, ...}} | {"fix_index": n}。
+    不接受任意补丁：只能写说明书里登记过的参数，或体检给出的修复项。"""
+    try:
+        if payload.get("preset"):
+            patch = config_guide.preset_patch(str(payload["preset"]))
+        elif isinstance(payload.get("wizard"), dict):
+            patch = config_guide.wizard(payload["wizard"])["patch"]
+        elif isinstance(payload.get("values"), dict):
+            patch = config_guide.items_to_patch(payload["values"])
+        elif payload.get("fix_index") is not None:
+            bundle = config_guide.guide_bundle(BASE_DIR, ROOT_DIR, topic_count=len(topic_index.topics))
+            idx = int(payload["fix_index"])
+            fix = bundle["doctor"][idx].get("fix") if 0 <= idx < len(bundle["doctor"]) else None
+            if not fix:
+                return {"code": 1, "msg": "这一项没有可自动修复的设置"}
+            patch = fix
+        else:
+            return {"code": 1, "msg": "请选择预设、回答向导或修改具体参数"}
+        res = config_guide.apply_patch(BASE_DIR, ROOT_DIR, patch)
+    except (ValueError, KeyError, IndexError) as exc:
+        return {"code": 1, "msg": str(exc)}
+    await reload_config()
+    await state.add_log("info", f"[配置向导] {res['plain']} 改动：{', '.join(res['changed']) or '无变化'}")
+    return {"code": 0, **res,
+            "bundle": config_guide.guide_bundle(BASE_DIR, ROOT_DIR, topic_count=len(topic_index.topics))}
+
+
 @app.get("/api/health")
 async def api_health_check():
     report = await health_mon.run_all_checks(http_client, state, kb_engine, prof_mgr, health_context())

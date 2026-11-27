@@ -1199,8 +1199,12 @@ def generate_project_obs_presets(hub_url: str = "http://127.0.0.1:28910/stage?la
         cp.set("Video", "BaseCY", str(p["height"]))
         cp.set("Video", "OutputCX", str(p["width"]))
         cp.set("Video", "OutputCY", str(p["height"]))
-        cp.set("Video", "FPSType", "0")
-        cp.set("Video", "FPSCommon", "30")
+        # 数字人 HuBERT 形象为 25fps：OBS 也用 25fps，避免 30fps 每秒重复 5 帧造成轻微顿挫
+        cp.set("Video", "FPSType", "1")
+        cp.set("Video", "FPSInt", "25")
+        cp.set("Video", "FPSCommon", "25 PAL")
+        cp.set("Video", "FPSNum", "25")
+        cp.set("Video", "FPSDen", "1")
 
         tmp_ini = ini_path.with_suffix(".ini.tmp")
         with tmp_ini.open("w", encoding="utf-8") as f:
@@ -2245,6 +2249,16 @@ def import_external_avatar_dir(src_dir: Path, avatar_id: str, name: str = "", as
         })
     register_host_profile(aid, name or aid, name or aid, "zh-CN-XiaoxiaoNeural", "", "")
     return True, f"成功导入 Ultralight 形象 [{aid}] -> {av_dir}"
+
+
+def engine_live_sessions() -> int:
+    """数字人引擎当前在线的直播画面路数（引擎未启动返回 0）；用于训练前防呆提醒。"""
+    if not is_port_open("127.0.0.1", 8020, 0.2):
+        return 0
+    code, res = http_json("http://127.0.0.1:8020/api/admin/sessions", timeout=2.0)
+    if code != 200 or not isinstance(res, dict):
+        return 0
+    return sum(1 for x in (res.get("data") or {}).get("sessions", []) if x.get("live", True))
 
 
 def spawn_ultralight_pipeline_proc(
